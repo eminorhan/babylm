@@ -19,11 +19,11 @@ python -u /scratch/eo41/babylm/train.py \
     --model_name_or_path "gpt2" \
     --train_file "data/babylm_10M/aochildes.txt" \
     --per_device_train_batch_size 256 \
-    --learning_rate 0.0005 \
+    --learning_rate 0.0001 \
     --output_dir "${MODEL_ROOT_DIR}/gpt2-aochildes" \
     --save_prefix ${SP} \
     --block_size 128 \
-    --num_train_epochs 10 \
+    --num_train_epochs 250 \
     --overwrite_cache
 
 echo "Done"
