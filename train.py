@@ -84,7 +84,7 @@ def parse_args():
     parser.add_argument("--checkpointing_steps", type=str, default=None, help="Whether the various states should be saved at the end of every n steps, or 'epoch' for each epoch.")
     parser.add_argument("--resume_from_checkpoint", type=str, default=None, help="If the training should continue from a checkpoint folder.")
     parser.add_argument("--save_prefix", type=str, default='', help="Informative string prefix for saving purposes.")
-    parser.add_argument("--use_pretrained_weights", type=bool, default=True, help="Whether to use pretrained weights.")
+    parser.add_argument("--use_pretrained_weights", action="store_true", help="Whether to use pretrained weights.")
 
     args = parser.parse_args()
 
@@ -101,6 +101,7 @@ def parse_args():
 
 def main():
     args = parse_args()
+    print(args)
 
     # Initialize the accelerator
     accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps)
@@ -166,11 +167,9 @@ def main():
         logger.warning("You are instantiating a new config instance from scratch.")
 
     if args.tokenizer_name:
-        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=not args.use_slow_tokenizer, model_max_length=2048)  # TODO: pass this more beautifully
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=not args.use_slow_tokenizer)
     elif args.model_name_or_path:
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=not args.use_slow_tokenizer, model_max_length=2048)  # TODO: pass this more beautifully
-        if args.model_name_or_path.startswith("gpt2") or args.model_name_or_path.startswith("EleutherAI"):
-            tokenizer.pad_token = tokenizer.eos_token
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=not args.use_slow_tokenizer)
     else:
         raise ValueError(
             "You are instantiating a new tokenizer from scratch. This is not supported by this script."
@@ -178,6 +177,7 @@ def main():
         )
 
     if args.model_name_or_path and args.use_pretrained_weights:
+        logger.info("Loading pretrained weights")
         model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, from_tf=bool(".ckpt" in args.model_name_or_path), config=config)
     else:
         logger.info("Training new model from scratch")
@@ -255,7 +255,7 @@ def main():
             batched=True,
             num_proc=args.preprocessing_num_workers,
             load_from_cache_file=not args.overwrite_cache,
-            desc=f"Not grouping text.",
+            desc=f"Grouping text.",
         )
 
     # dataset & dataloader creation
@@ -265,7 +265,7 @@ def main():
     # Log a few random samples from the training set:
     for index in random.sample(range(len(train_dataset)), 3):
         logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
-        logger.info(f"Sample {index} of the training set (decoded): {tokenizer.decode(train_dataset[index]['input_ids'], skip_special_tokens=True)}.")
+        logger.info(f"Sample {index} of the training set (decoded): {tokenizer.decode(train_dataset[index]['input_ids'], skip_special_tokens=False)}.")
 
     model = accelerator.prepare(model)
     
