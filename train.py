@@ -58,12 +58,26 @@ MODEL_CONFIG_CLASSES = list(MODEL_MAPPING.keys())
 MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
 
-def parse_args():
+def check_file_extensions(file_list):
+    # Extract the extension from the first file
+    extension = file_list[0].split('.')[-1]
+    
+    # Check that all files have one of the allowed extensions
+    for file_name in file_list:
+        assert file_name.endswith(('.csv', '.json', '.txt')), "Invalid file extension."
+    
+    # Check that all files have the same extension
+    for file_name in file_list:
+        assert file_name.split('.')[-1] == extension, "Files have different extensions."
 
+    print("All files have the same extension: {}.".format(extension))
+
+
+def parse_args():
     parser = argparse.ArgumentParser(description="Finetune large language models on causal language modeling tasks")
     parser.add_argument("--dataset_name", type=str, default=None, help="The name of the dataset to use (via the datasets library).")
     parser.add_argument("--dataset_config_name", type=str, default=None, help="The configuration name of the dataset to use (via the datasets library).")
-    parser.add_argument("--train_file", type=str, default=None, help="A csv or a json file containing the training data.")
+    parser.add_argument('--train_files', nargs='+', help="list of files containing the training data")
     parser.add_argument("--model_name_or_path", type=str, help="Path to pretrained model or model identifier from huggingface.co/models.", required=False)
     parser.add_argument("--config_name", type=str, default=None, help="Pretrained config name or path if not the same as model_name")
     parser.add_argument("--tokenizer_name", type=str, default=None, help="Pretrained tokenizer name or path if not the same as model_name")
@@ -88,13 +102,8 @@ def parse_args():
 
     args = parser.parse_args()
 
-    # Sanity checks
-    if args.dataset_name is None and args.train_file is None:
-        raise ValueError("Need either a dataset name or a training file.")
-    else:
-        if args.train_file is not None:
-            extension = args.train_file.split(".")[-1]
-            assert extension in ["csv", "json", "txt"], "`train_file` should be a csv, json or txt file."
+    # Sanity check for file extensions
+    check_file_extensions(args.train_files)
 
     return args
 
@@ -107,11 +116,7 @@ def main():
     accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps)
     
     # Make one log on every process with the configuration for debugging.
-    logging.basicConfig(
-        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-        datefmt="%m/%d/%Y %H:%M:%S",
-        level=logging.INFO,
-    )
+    logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.INFO)
     logger.info(accelerator.state, main_process_only=False)
     if accelerator.is_local_main_process:
         datasets.utils.logging.set_verbosity_warning()
@@ -137,15 +142,14 @@ def main():
     # For CSV/JSON files, this script will use the column called 'text' or the first column if no column called
     # 'text' is found. You can easily tweak this behavior (see below).
     #
-    # In distributed training, the load_dataset function guarantee that only one local process can concurrently
-    # download the dataset.
+    # In distributed training, 'load_dataset' function guarantee that only one local process can concurrently download the dataset.
     if args.dataset_name is not None:
         # Downloading and loading a dataset from the hub.
         raw_datasets = load_dataset(args.dataset_name, args.dataset_config_name)
     else:
-        data_files = {"train": args.train_file}
+        data_files = {"train": args.train_files}
         dataset_args = {}
-        extension = args.train_file.split(".")[-1]
+        extension = args.train_files[0].split(".")[-1]
         if extension == "txt":
             extension = "text"
             dataset_args["keep_linebreaks"] = not args.no_keep_linebreaks

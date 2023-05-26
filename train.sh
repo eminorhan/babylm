@@ -12,18 +12,27 @@ export TRANSFORMERS_CACHE="/vast/eo41/huggingface"
 
 # root model directory
 MODEL_ROOT_DIR="/vast/eo41/babylm/models"
-SP="gpt2-aochildes"
+SP="gpt2-10M-all"
 
 # gpt2
 python -u /scratch/eo41/babylm/train.py \
     --model_name_or_path "gpt2" \
-    --train_file "data/babylm_10M/aochildes.txt" \
+    --train_files "data/babylm_10M/aochildes.txt" \
+                  "data/babylm_10M/bnc_spoken.txt" \
+                  "data/babylm_10M/cbt.txt" \
+                  "data/babylm_10M/children_stories.txt" \
+                  "data/babylm_10M/gutenberg.txt" \
+                  "data/babylm_10M/open_subtitles.txt" \
+                  "data/babylm_10M/qed.txt" \
+                  "data/babylm_10M/simple_wikipedia.txt" \
+                  "data/babylm_10M/switchboard.txt" \
+                  "data/babylm_10M/wikipedia.txt" \
     --per_device_train_batch_size 256 \
     --learning_rate 0.0001 \
     --output_dir "${MODEL_ROOT_DIR}/gpt2-aochildes" \
     --save_prefix ${SP} \
     --block_size 128 \
-    --num_train_epochs 250 \
+    --num_train_epochs 10 \
     --overwrite_cache
 
 echo "Done"
