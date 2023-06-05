@@ -160,7 +160,7 @@ def main():
     generations = []
     for i in range(1024):
         with torch.no_grad():
-            output_tok = model.generate(do_sample=True, max_length=block_size//2, min_length=block_size//2, return_dict_in_generate=False, output_scores=False)
+            output_tok = model.generate(do_sample=True, max_length=block_size, min_length=block_size, return_dict_in_generate=False, output_scores=False)
             output = tokenizer.decode(output_tok[0], skip_special_tokens=True)
             print(output)
             print('\n')

@@ -44,7 +44,7 @@ from transformers import (
     MODEL_MAPPING,
     AutoConfig,
     AutoModelForCausalLM,
-    AutoTokenizer,
+    PreTrainedTokenizerFast,
     default_data_collator,
 )
 from transformers.utils.versions import require_version
@@ -78,10 +78,10 @@ def parse_args():
     parser.add_argument("--dataset_name", type=str, default=None, help="The name of the dataset to use (via the datasets library).")
     parser.add_argument("--dataset_config_name", type=str, default=None, help="The configuration name of the dataset to use (via the datasets library).")
     parser.add_argument('--train_files', nargs='+', help="list of files containing the training data")
+    parser.add_argument('--val_files', nargs='+', help="list of files containing the validation data")
     parser.add_argument("--model_name_or_path", type=str, help="Path to pretrained model or model identifier from huggingface.co/models.", required=False)
     parser.add_argument("--config_name", type=str, default=None, help="Pretrained config name or path if not the same as model_name")
-    parser.add_argument("--tokenizer_name", type=str, default=None, help="Pretrained tokenizer name or path if not the same as model_name")
-    parser.add_argument("--use_slow_tokenizer", action="store_true", help="If passed, will use a slow tokenizer (not backed by the 🤗 Tokenizers library).")
+    parser.add_argument("--tokenizer_file", type=str, default=None, help="Pretrained tokenizer path")
     parser.add_argument("--per_device_train_batch_size", type=int, default=8, help="Batch size (per device) for the training dataloader.")
     parser.add_argument("--learning_rate", type=float, default=0.0001, help="Initial learning rate (after the potential warmup period) to use.")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay to use.")
@@ -104,6 +104,7 @@ def parse_args():
 
     # Sanity check for file extensions
     check_file_extensions(args.train_files)
+    check_file_extensions(args.val_files)
 
     return args
 
@@ -143,25 +144,20 @@ def main():
     # 'text' is found. You can easily tweak this behavior (see below).
     #
     # In distributed training, 'load_dataset' function guarantee that only one local process can concurrently download the dataset.
-    if args.dataset_name is not None:
-        # Downloading and loading a dataset from the hub.
-        raw_datasets = load_dataset(args.dataset_name, args.dataset_config_name)
-    else:
-        data_files = {"train": args.train_files}
-        dataset_args = {}
-        extension = args.train_files[0].split(".")[-1]
-        if extension == "txt":
-            extension = "text"
-            dataset_args["keep_linebreaks"] = not args.no_keep_linebreaks
-        raw_datasets = load_dataset(extension, data_files=data_files, **dataset_args)
+    data_files = {"train": args.train_files, "validation": args.val_files}
+    dataset_args = {}
+    extension = args.train_files[0].split(".")[-1]
+    if extension == "txt":
+        extension = "text"
+        dataset_args["keep_linebreaks"] = not args.no_keep_linebreaks
+    raw_datasets = load_dataset(extension, data_files=data_files, **dataset_args)
 
     # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
     # https://huggingface.co/docs/datasets/loading_datasets.html.
 
     # Load pretrained model and tokenizer
  
-    # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently
-    # download model & vocab.
+    # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently download model & vocab.
     if args.config_name:
         config = AutoConfig.from_pretrained(args.config_name)
     elif args.model_name_or_path:
@@ -170,15 +166,17 @@ def main():
         config = CONFIG_MAPPING[args.model_type]()
         logger.warning("You are instantiating a new config instance from scratch.")
 
-    if args.tokenizer_name:
-        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=not args.use_slow_tokenizer)
-    elif args.model_name_or_path:
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=not args.use_slow_tokenizer)
+    if args.tokenizer_file:
+        tokenizer = PreTrainedTokenizerFast(
+            tokenizer_file=args.tokenizer_file,
+            unk_token="[UNK]",
+            pad_token="[PAD]",
+            cls_token="[CLS]",
+            sep_token="[SEP]",
+            mask_token="[MASK]"
+            )
     else:
-        raise ValueError(
-            "You are instantiating a new tokenizer from scratch. This is not supported by this script."
-            "You can do it from another script, save it, and load it from here, using --tokenizer_name."
-        )
+        raise ValueError("Please specify a valid tokenizer file path.")
 
     if args.model_name_or_path and args.use_pretrained_weights:
         logger.info("Loading pretrained weights")
@@ -228,9 +226,7 @@ def main():
             desc="Running tokenizer on dataset",
         )
 
-    # TODO: Might have to change this to group_text as in the original example
-    # TODO: revert this back later on
-    # Main data processing function.
+    # Main data processing function. First version reads line by line, I think?
     def preprocess_function(examples):
         examples["labels"] = examples["input_ids"].copy()
         # pad token must be set to -100 in labels to make sure it's ignored when computing the loss
@@ -264,7 +260,9 @@ def main():
 
     # dataset & dataloader creation
     train_dataset = lm_datasets["train"]
+    val_dataset = lm_datasets["validation"]
     train_dataloader = DataLoader(train_dataset, shuffle=True, collate_fn=default_data_collator, batch_size=args.per_device_train_batch_size)
+    val_dataloader = DataLoader(val_dataset, shuffle=False, collate_fn=default_data_collator, batch_size=8*args.per_device_train_batch_size)
 
     # Log a few random samples from the training set:
     for index in random.sample(range(len(train_dataset)), 3):
@@ -272,7 +270,8 @@ def main():
         logger.info(f"Sample {index} of the training set (decoded): {tokenizer.decode(train_dataset[index]['input_ids'], skip_special_tokens=False)}.")
 
     model = accelerator.prepare(model)
-    
+    print('Model:', model)
+
     # Optimizer
     # Split weights in two groups, one with weight decay and the other not.
     no_decay = ["bias", "layer_norm.weight"]
@@ -290,7 +289,7 @@ def main():
         overrode_max_train_steps = True
 
     # Prepare everything with our `accelerator`.
-    optimizer, train_dataloader = accelerator.prepare(optimizer, train_dataloader)
+    optimizer, train_dataloader, val_dataloader = accelerator.prepare(optimizer, train_dataloader, val_dataloader)
 
     # On TPU, the tie weights in our model have been disconnected, so we need to restore the ties.
     if accelerator.distributed_type == DistributedType.TPU:
@@ -423,8 +422,27 @@ def main():
             train_losses_ckpt = train_losses_ckpt.cpu().numpy()
             logger.info(f"Mean train loss: {np.mean(train_losses_ckpt)}")
 
+            # save val losses 
+            model.eval()
+            val_losses = []
+            for step, batch in enumerate(val_dataloader):
+                with torch.no_grad():
+                    outputs = model(**batch)
+                    loss = outputs.loss
+                    # keep track of the loss at each epoch
+                    val_losses.append(loss.detach().unsqueeze(0))
+
+            val_losses_ckpt = torch.cat(val_losses)
+            val_losses_ckpt = val_losses_ckpt.cpu().numpy()
+            logger.info(f"Mean val loss: {np.mean(val_losses_ckpt)}")
+
+            # save        
             save_path = os.path.join(output_dir, args.save_prefix + '_results.npz')
-            np.savez(save_path, train_losses_ckpt=train_losses_ckpt, completed_steps=completed_steps)
+            np.savez(save_path, train_losses_ckpt=train_losses_ckpt, val_losses_ckpt=val_losses_ckpt, completed_steps=completed_steps)
+
+            # re-initialize losses
+            train_losses = []
+            val_losses = []
 
     if args.checkpointing_steps is None and args.output_dir is not None:
         # save model and tokenizer
