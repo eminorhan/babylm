@@ -19,7 +19,6 @@ on a text file or a dataset without using HuggingFace Trainer.
 Here is the full list of checkpoints on the hub that can be fine-tuned by this script:
 https://huggingface.co/models?filter=text-generation
 """
-# You can also adapt this script on your own causal language modeling task. Pointers for this are left as comments.
 
 import argparse
 import logging
@@ -156,7 +155,6 @@ def main():
     # https://huggingface.co/docs/datasets/loading_datasets.html.
 
     # Load pretrained model and tokenizer
- 
     # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently download model & vocab.
     if args.config_name:
         config = AutoConfig.from_pretrained(args.config_name)
@@ -237,8 +235,7 @@ def main():
         # Concatenate all texts.
         concatenated_examples = {k: list(chain(*examples[k])) for k in examples.keys()}
         total_length = len(concatenated_examples[list(examples.keys())[0]])
-        # We drop the small remainder, we could add padding if the model supported it instead of this drop, you can
-        # customize this part to your needs.
+        # We drop the small remainder, we could add padding if the model supported it instead of this drop, you can customize this part to your needs
         if total_length >= block_size:
             total_length = (total_length // block_size) * block_size
         # Split by chunks of max_len.
@@ -270,10 +267,11 @@ def main():
         logger.info(f"Sample {index} of the training set (decoded): {tokenizer.decode(train_dataset[index]['input_ids'], skip_special_tokens=False)}.")
 
     model = accelerator.prepare(model)
-    print('Model:', model)
+    n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print("Model = %s" % str(model))
+    print('number of params (M): %.2f' % (n_parameters / 1.e6))
 
-    # Optimizer
-    # Split weights in two groups, one with weight decay and the other not.
+    # Optimizer: split weights in two groups, one with weight decay and the other not.
     no_decay = ["bias", "layer_norm.weight"]
     optimizer_grouped_parameters = [
         {"params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], "weight_decay": args.weight_decay},
@@ -353,6 +351,8 @@ def main():
 
     train_losses = []
     train_losses_all = []
+    val_losses = []
+    val_losses_all = []
 
     for epoch in range(starting_epoch, args.num_train_epochs):
         model.train()
@@ -396,55 +396,37 @@ def main():
                     # save train_losses
                     train_losses_ckpt = torch.cat(train_losses)
                     train_losses_ckpt = train_losses_ckpt.cpu().numpy()
-
                     train_losses_all_ckpt = torch.cat(train_losses_all)
                     train_losses_all_ckpt = train_losses_all_ckpt.cpu().numpy()
-
                     logger.info(f"Mean train loss: {np.mean(train_losses_ckpt)}")
 
-                    save_path = os.path.join(output_dir, 'train_losses.npz')
-                    np.savez(save_path, train_losses=train_losses_all_ckpt, completed_steps=completed_steps)
+                    # save val losses 
+                    model.eval()
+                    for step, batch in enumerate(val_dataloader):
+                        with torch.no_grad():
+                            outputs = model(**batch)
+                            loss = outputs.loss
+                            # keep track of the loss at each epoch
+                            val_losses.append(loss.detach().unsqueeze(0))
+                            val_losses_all.append(loss.detach().unsqueeze(0))
+
+                    val_losses_ckpt = torch.cat(val_losses)
+                    val_losses_ckpt = val_losses_ckpt.cpu().numpy()
+                    val_losses_all_ckpt = torch.cat(val_losses_all)
+                    val_losses_all_ckpt = val_losses_all_ckpt.cpu().numpy()
+                    logger.info(f"Mean val loss: {np.mean(val_losses_ckpt)}")
+
+                    save_path = os.path.join(output_dir, 'losses.npz')
+                    np.savez(save_path, train_losses=train_losses_all_ckpt, val_losses_ckpt=val_losses_all_ckpt, completed_steps=completed_steps)
 
                     # re-initialize losses
                     train_losses = []
+                    val_losses = []
 
             if completed_steps >= args.max_train_steps:
                 break
 
-        if args.checkpointing_steps == "epoch":
-            output_dir = f"epoch_{epoch}"
-            if args.output_dir is not None:
-                output_dir = os.path.join(args.output_dir, output_dir)
-            accelerator.save_state(output_dir)
-
-            # save train_losses
-            train_losses_ckpt = torch.cat(train_losses)
-            train_losses_ckpt = train_losses_ckpt.cpu().numpy()
-            logger.info(f"Mean train loss: {np.mean(train_losses_ckpt)}")
-
-            # save val losses 
-            model.eval()
-            val_losses = []
-            for step, batch in enumerate(val_dataloader):
-                with torch.no_grad():
-                    outputs = model(**batch)
-                    loss = outputs.loss
-                    # keep track of the loss at each epoch
-                    val_losses.append(loss.detach().unsqueeze(0))
-
-            val_losses_ckpt = torch.cat(val_losses)
-            val_losses_ckpt = val_losses_ckpt.cpu().numpy()
-            logger.info(f"Mean val loss: {np.mean(val_losses_ckpt)}")
-
-            # save        
-            save_path = os.path.join(output_dir, args.save_prefix + '_results.npz')
-            np.savez(save_path, train_losses_ckpt=train_losses_ckpt, val_losses_ckpt=val_losses_ckpt, completed_steps=completed_steps)
-
-            # re-initialize losses
-            train_losses = []
-            val_losses = []
-
-    if args.checkpointing_steps is None and args.output_dir is not None:
+    if args.output_dir is not None:
         # save model and tokenizer
         accelerator.wait_for_everyone()
         unwrapped_model = accelerator.unwrap_model(model)
@@ -455,11 +437,29 @@ def main():
         # save train_losses
         train_losses_ckpt = torch.cat(train_losses)
         train_losses_ckpt = train_losses_ckpt.cpu().numpy()
-        logger.info(f"Final mean train loss: {np.mean(train_losses_ckpt)}")
+        train_losses_all_ckpt = torch.cat(train_losses_all)
+        train_losses_all_ckpt = train_losses_all_ckpt.cpu().numpy()
+        logger.info(f"Final mean train loss (may have more variability): {np.mean(train_losses_ckpt)}")
+
+        # save val losses 
+        model.eval()
+        for step, batch in enumerate(val_dataloader):
+            with torch.no_grad():
+                outputs = model(**batch)
+                loss = outputs.loss
+                # keep track of the loss at each epoch
+                val_losses.append(loss.detach().unsqueeze(0))
+                val_losses_all.append(loss.detach().unsqueeze(0))
+
+        val_losses_ckpt = torch.cat(val_losses)
+        val_losses_ckpt = val_losses_ckpt.cpu().numpy()
+        val_losses_all_ckpt = torch.cat(val_losses_all)
+        val_losses_all_ckpt = val_losses_all_ckpt.cpu().numpy()
+        logger.info(f"Final mean val loss (may have more variability): {np.mean(val_losses_ckpt)}")
 
         # save results
         save_path = os.path.join(args.output_dir, args.save_prefix + '_results.npz')
-        np.savez(save_path, train_losses_ckpt=train_losses_ckpt, completed_steps=completed_steps)
+        np.savez(save_path, train_losses=train_losses_all_ckpt, val_losses_ckpt=val_losses_all_ckpt, completed_steps=completed_steps)
 
 
 if __name__ == "__main__":
