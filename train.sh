@@ -1,9 +1,9 @@
 #!/bin/bash
 
-#SBATCH --gres=gpu:a100:1
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=240GB
-#SBATCH --time=2:00:00
+#SBATCH --gres=gpu:a100:4
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=492GB
+#SBATCH --time=48:00:00
 #SBATCH --job-name=train
 #SBATCH --output=train_%A_%a.out
 #SBATCH --array=0
@@ -15,8 +15,8 @@ export HF_DATASETS_CACHE="/vast/eo41/huggingface"
 MODEL_ROOT_DIR="/vast/eo41/babylm/models"
 SP="gpt2-xl-10M"
 
-# gpt2
-python -u /scratch/eo41/babylm/train.py \
+# gpt2-xl
+accelerate launch --config_file accelerate_4gpu_config.yaml --num_cpu_threads_per_process 4 /scratch/eo41/babylm/train.py \
     --model_name_or_path "gpt2-xl" \
     --train_files "data/babylm_10M/aochildes.txt" \
                   "data/babylm_10M/bnc_spoken.txt" \
@@ -44,8 +44,8 @@ python -u /scratch/eo41/babylm/train.py \
     --output_dir "${MODEL_ROOT_DIR}/${SP}" \
     --save_prefix ${SP} \
     --block_size 512 \
-    --num_train_epochs 2 \
-    --checkpointing_steps 1000 \
+    --num_train_epochs 1000 \
+    --checkpointing_steps 15000 \
     --overwrite_cache
 
 echo "Done"
