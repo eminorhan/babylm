@@ -16,7 +16,7 @@ MODEL_ROOT_DIR="/vast/eo41/babylm/models"
 SP="gpt2-xl-10M"
 
 # gpt2-xl
-accelerate launch --config_file accelerate_4gpu_config.yaml --num_cpu_threads_per_process 4 /scratch/eo41/babylm/train.py \
+accelerate launch --config_file accelerate_4gpu_config.yaml --num_cpu_threads_per_process 16 /scratch/eo41/babylm/train.py \
     --model_name_or_path "gpt2-xl" \
     --train_files "data/babylm_10M/aochildes.txt" \
                   "data/babylm_10M/bnc_spoken.txt" \
@@ -29,23 +29,24 @@ accelerate launch --config_file accelerate_4gpu_config.yaml --num_cpu_threads_pe
                   "data/babylm_10M/switchboard.txt" \
                   "data/babylm_10M/wikipedia.txt" \
     --val_files "data/babylm_dev/aochildes.txt" \
-                  "data/babylm_dev/bnc_spoken.txt" \
-                  "data/babylm_dev/cbt.txt" \
-                  "data/babylm_dev/children_stories.txt" \
-                  "data/babylm_dev/gutenberg.txt" \
-                  "data/babylm_dev/open_subtitles.txt" \
-                  "data/babylm_dev/qed.txt" \
-                  "data/babylm_dev/simple_wikipedia.txt" \
-                  "data/babylm_dev/switchboard.txt" \
-                  "data/babylm_dev/wikipedia.txt" \
+                "data/babylm_dev/bnc_spoken.txt" \
+                "data/babylm_dev/cbt.txt" \
+                "data/babylm_dev/children_stories.txt" \
+                "data/babylm_dev/gutenberg.txt" \
+                "data/babylm_dev/open_subtitles.txt" \
+                "data/babylm_dev/qed.txt" \
+                "data/babylm_dev/simple_wikipedia.txt" \
+                "data/babylm_dev/switchboard.txt" \
+                "data/babylm_dev/wikipedia.txt" \
     --tokenizer_file "babylm_10M_tokenizer.json" \
-    --per_device_train_batch_size 6 \
+    --per_device_train_batch_size 8 \
+    --gradient_accumulation_steps 1 \
     --learning_rate 0.0001 \
     --output_dir "${MODEL_ROOT_DIR}/${SP}" \
     --save_prefix ${SP} \
     --block_size 512 \
     --num_train_epochs 1000 \
-    --checkpointing_steps 15000 \
+    --checkpointing_steps 1000 \
     --overwrite_cache
 
 echo "Done"
