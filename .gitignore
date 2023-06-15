@@ -3,7 +3,6 @@
 *.pth
 *.tar
 *.ckpt
-*.out
 *.npz
 *.png
 *.train
