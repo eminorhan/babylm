@@ -183,7 +183,9 @@ def main():
         logger.info("Training new model from scratch")
         model = AutoModelForCausalLM.from_config(config)
 
-    model.resize_token_embeddings(len(tokenizer))
+    model.resize_token_embeddings(new_num_tokens=len(tokenizer), pad_to_multiple_of=128)
+    print('Tokenizer len:', len(tokenizer))
+    print('Model:', model)
 
     # Preprocessing the datasets. First we tokenize all the texts.
     column_names = raw_datasets["train"].column_names
@@ -192,19 +194,14 @@ def main():
     if args.block_size is None:
         block_size = tokenizer.model_max_length
         if block_size > 1024:
-            logger.warning(
-                f"The tokenizer picked seems to have a very large `model_max_length` ({tokenizer.model_max_length})."
-                "Picking 1024 instead. You can change that default value by passing --block_size xxx."
-            )
+            logger.warning(f"The tokenizer picked seems to have a very large `model_max_length` ({tokenizer.model_max_length}). Picking 1024 instead. You can change that default value by passing --block_size xxx.")
             block_size = 1024
     else:
         block_size = args.block_size
         if args.block_size > tokenizer.model_max_length:
-            logger.warning(
-                f"The block_size passed ({args.block_size}) is larger than the maximum length for the model"
-                f"({tokenizer.model_max_length}). Using block_size={tokenizer.model_max_length}."
-            )
+            logger.warning(f"The block_size passed ({args.block_size}) is larger than the maximum length for the model ({tokenizer.model_max_length}). Using block_size={tokenizer.model_max_length}.")
             block_size = tokenizer.model_max_length
+
     print('Block size:', block_size)
 
     # TODO: revert this back later on
@@ -232,17 +229,14 @@ def main():
         return examples
 
     def preprocess_function_original(examples):
-        # Concatenate all texts.
+        # Concatenate all texts (aka sequence packing).
         concatenated_examples = {k: list(chain(*examples[k])) for k in examples.keys()}
         total_length = len(concatenated_examples[list(examples.keys())[0]])
         # We drop the small remainder, we could add padding if the model supported it instead of this drop, you can customize this part to your needs
         if total_length >= block_size:
             total_length = (total_length // block_size) * block_size
         # Split by chunks of max_len.
-        result = {
-            k: [t[i : i + block_size] for i in range(0, total_length, block_size)]
-            for k, t in concatenated_examples.items()
-        }
+        result = {k: [t[i : i + block_size] for i in range(0, total_length, block_size)] for k, t in concatenated_examples.items()}
         result["labels"] = result["input_ids"].copy()
         return result
     
@@ -259,7 +253,7 @@ def main():
     train_dataset = lm_datasets["train"]
     val_dataset = lm_datasets["validation"]
     train_dataloader = DataLoader(train_dataset, shuffle=True, collate_fn=default_data_collator, batch_size=args.per_device_train_batch_size)
-    val_dataloader = DataLoader(val_dataset, shuffle=False, collate_fn=default_data_collator, batch_size=4*args.per_device_train_batch_size)
+    val_dataloader = DataLoader(val_dataset, shuffle=False, collate_fn=default_data_collator, batch_size=2*args.per_device_train_batch_size)  # val batch size is 2x train batch size
 
     # Log a few random samples from the training set:
     for index in random.sample(range(len(train_dataset)), 3):
@@ -460,7 +454,6 @@ def main():
         # save results
         save_path = os.path.join(args.output_dir, args.save_prefix + '_results.npz')
         np.savez(save_path, train_losses=train_losses_all_ckpt, val_losses_ckpt=val_losses_all_ckpt, completed_steps=completed_steps)
-
 
 if __name__ == "__main__":
     main()
