@@ -6,6 +6,9 @@
 *.npz
 *.png
 *.train
+*.txt
+*.json
+*.jsonl
 
 # Directories
 **/__pycache__/
