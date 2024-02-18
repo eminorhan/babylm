@@ -6,6 +6,7 @@
 *.npz
 *.png
 *.train
+*.test
 *.txt
 *.json
 *.jsonl
