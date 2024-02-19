@@ -185,8 +185,8 @@ def main():
     print('Min, max, mean, median train lens:', np.min(train_lens), np.max(train_lens), np.mean(train_lens), np.median(train_lens))
     print('Min, max, mean, median val lens:', np.min(val_lens), np.max(val_lens), np.mean(val_lens), np.median(val_lens))
 
-    print('max 15 train:', np.sort(train_lens)[-15:])
-    print('max 15 val:', np.sort(val_lens)[-15:])
+    print('max 100 train:', np.sort(train_lens)[-100:])
+    print('max 100 val:', np.sort(val_lens)[-100:])
 
 if __name__ == "__main__":
     main()
