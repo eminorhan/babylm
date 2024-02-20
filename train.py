@@ -164,6 +164,9 @@ def main():
         config = CONFIG_MAPPING[args.model_type]()
         logger.warning("You are instantiating a new config instance from scratch.")
 
+    config.bos_token_id = 26412
+    config.eos_token_id = 26413
+
     if args.tokenizer_file:
         tokenizer = PreTrainedTokenizerFast(
             tokenizer_file=args.tokenizer_file,
