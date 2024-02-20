@@ -185,6 +185,7 @@ def main():
 
     model.resize_token_embeddings(new_num_tokens=len(tokenizer), pad_to_multiple_of=128)
     print('Tokenizer len:', len(tokenizer))
+    print('Pad token id:', tokenizer.pad_token_id)
     print('Model:', model)
 
     # Preprocessing the datasets. First we tokenize all the texts.
@@ -213,7 +214,7 @@ def main():
 
     with accelerator.main_process_first():
         tokenized_datasets = raw_datasets.map(
-            tokenize_function_original,
+            tokenize_function,
             batched=True,
             num_proc=args.preprocessing_num_workers,
             remove_columns=column_names,
@@ -221,7 +222,7 @@ def main():
             desc="Running tokenizer on dataset",
         )
 
-    # Main data processing function. First version reads line by line, I think?
+    # Main data processing function. First version reads line by line
     def preprocess_function(examples):
         examples["labels"] = examples["input_ids"].copy()
         # pad token must be set to -100 in labels to make sure it's ignored when computing the loss
@@ -242,7 +243,7 @@ def main():
     
     with accelerator.main_process_first():
         lm_datasets = tokenized_datasets.map(
-            preprocess_function_original,
+            preprocess_function,
             batched=True,
             num_proc=args.preprocessing_num_workers,
             load_from_cache_file=not args.overwrite_cache,
@@ -258,7 +259,7 @@ def main():
     # Log a few random samples from the training set:
     for index in random.sample(range(len(train_dataset)), 3):
         logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
-        logger.info(f"Sample {index} of the training set (decoded): {tokenizer.decode(train_dataset[index]['input_ids'], skip_special_tokens=False)}.")
+        logger.info(f"Sample {index} of the training set (decoded): {tokenizer.decode(train_dataset[index]['input_ids'], skip_special_tokens=True)}.")
 
     model = accelerator.prepare(model)
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -419,41 +420,6 @@ def main():
 
             if completed_steps >= args.max_train_steps:
                 break
-
-    if args.output_dir is not None:
-        # save model and tokenizer
-        accelerator.wait_for_everyone()
-        unwrapped_model = accelerator.unwrap_model(model)
-        unwrapped_model.save_pretrained(args.output_dir, is_main_process=accelerator.is_main_process, save_function=accelerator.save)
-        if accelerator.is_main_process:
-            tokenizer.save_pretrained(args.output_dir)
-
-        # save train_losses
-        train_losses_ckpt = torch.cat(train_losses)
-        train_losses_ckpt = train_losses_ckpt.cpu().numpy()
-        train_losses_all_ckpt = torch.cat(train_losses_all)
-        train_losses_all_ckpt = train_losses_all_ckpt.cpu().numpy()
-        logger.info(f"Final mean train loss (may have more variability): {np.mean(train_losses_ckpt)}")
-
-        # save val losses 
-        model.eval()
-        for step, batch in enumerate(val_dataloader):
-            with torch.no_grad():
-                outputs = model(**batch)
-                loss = outputs.loss
-                # keep track of the loss at each epoch
-                val_losses.append(loss.detach().unsqueeze(0))
-                val_losses_all.append(loss.detach().unsqueeze(0))
-
-        val_losses_ckpt = torch.cat(val_losses)
-        val_losses_ckpt = val_losses_ckpt.cpu().numpy()
-        val_losses_all_ckpt = torch.cat(val_losses_all)
-        val_losses_all_ckpt = val_losses_all_ckpt.cpu().numpy()
-        logger.info(f"Final mean val loss (may have more variability): {np.mean(val_losses_ckpt)}")
-
-        # save results
-        save_path = os.path.join(args.output_dir, args.save_prefix + '_results.npz')
-        np.savez(save_path, train_losses=train_losses_all_ckpt, val_losses_ckpt=val_losses_all_ckpt, completed_steps=completed_steps)
 
 if __name__ == "__main__":
     main()

@@ -76,11 +76,7 @@ def main():
     accelerator = Accelerator()
 
     # Make one log on every process with the configuration for debugging.
-    logging.basicConfig(
-        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-        datefmt="%m/%d/%Y %H:%M:%S",
-        level=logging.ERROR,
-    )
+    logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.ERROR)
     logger.info(accelerator.state, main_process_only=False)
     if accelerator.is_local_main_process:
         datasets.utils.logging.set_verbosity_error()
@@ -114,10 +110,7 @@ def main():
     elif args.model_name_or_path:
         tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=not args.use_slow_tokenizer)
     else:
-        raise ValueError(
-            "You are instantiating a new tokenizer from scratch. This is not supported by this script."
-            "You can do it from another script, save it, and load it from here, using --tokenizer_name."
-        )
+        raise ValueError("You are instantiating a new tokenizer from scratch. This is not supported by this script. You can do it from another script, save it, and load it from here, using --tokenizer_name.")
 
     if args.model_name_or_path:
         logger.info("Loading pretrained weights")
@@ -126,23 +119,19 @@ def main():
         logger.info("Training new model from scratch")
         model = AutoModelForCausalLM.from_config(config)
 
-    model.resize_token_embeddings(len(tokenizer))
+    print('Tokenizer len:', len(tokenizer))
+    print('Pad token id:', tokenizer.pad_token_id)
+    print('Model:', model)
 
     if args.block_size is None:
         block_size = tokenizer.model_max_length
         if block_size > 1024:
-            logger.warning(
-                f"The tokenizer picked seems to have a very large `model_max_length` ({tokenizer.model_max_length}). "
-                "Picking 1024 instead. You can change that default value by passing --block_size xxx."
-            )
+            logger.warning(f"The tokenizer picked seems to have a very large `model_max_length` ({tokenizer.model_max_length}). Picking 1024 instead. You can change that default value by passing --block_size xxx.")
             block_size = 1024
     else:
         block_size = args.block_size
         if args.block_size > tokenizer.model_max_length:
-            logger.warning(
-                f"The block_size passed ({args.block_size}) is larger than the maximum length for the model"
-                f"({tokenizer.model_max_length}). Using block_size={tokenizer.model_max_length}."
-            )
+            logger.warning(f"The block_size passed ({args.block_size}) is larger than the maximum length for the model ({tokenizer.model_max_length}). Using block_size={tokenizer.model_max_length}.")
             block_size = tokenizer.model_max_length
 
     # Prepare everything with our `accelerator`.
@@ -155,12 +144,14 @@ def main():
     logger.info("***** Starting sampling *****")
     logger.info(f"Instantaneous batch size per device = {args.per_device_eval_batch_size}")
 
+    # NOTE: eos and bos tokens do not exist in the pretrained tokenizer, so I need to start with another token (I use "One" below).
+    inputs = tokenizer(["One"], return_tensors="pt")['input_ids']
     model.eval()
 
     generations = []
     for i in range(1024):
         with torch.no_grad():
-            output_tok = model.generate(do_sample=True, max_length=block_size, min_length=block_size, return_dict_in_generate=False, output_scores=False)
+            output_tok = model.generate(inputs=inputs.cuda(), do_sample=True, max_length=block_size, min_length=block_size, return_dict_in_generate=False, output_scores=False)
             output = tokenizer.decode(output_tok[0], skip_special_tokens=True)
             print(output)
             print('\n')
