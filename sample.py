@@ -20,7 +20,7 @@ Here is the full list of checkpoints on the hub that can be fine-tuned by this s
 https://huggingface.co/models?filter=text-generation
 """
 # You can also adapt this script on your own causal language modeling task. Pointers for this are left as comments.
-
+import json
 import argparse
 import logging
 import os
@@ -51,6 +51,7 @@ MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Sample from a trained model")
+    parser.add_argument("--test_file", type=str, default='', help="path to test stories")
     parser.add_argument("--save_prefix", type=str, default='', help="Informative string for saving purposes")
     parser.add_argument("--model_name_or_path", type=str, help="Path to pretrained model or model identifier from huggingface.co/models.", required=False)
     parser.add_argument("--config_name", type=str, default=None, help="Pretrained config name or path if not the same as model_name")
@@ -144,16 +145,37 @@ def main():
     logger.info("***** Starting sampling *****")
     logger.info(f"Instantaneous batch size per device = {args.per_device_eval_batch_size}")
 
-    # NOTE: eos and bos tokens do not exist in the pretrained tokenizer, so I need to start with another token (I use "One" below).
-    inputs = tokenizer(["One"], return_tensors="pt")['input_ids']
+    # process test stories
+    test_stories = [] 
+    # Open the JSON file
+    with open(args.test_file, 'r') as json_file:
+        # Read each line separately and load JSON data
+        for line in json_file:
+            try:
+                # Load JSON data from the line
+                data = json.loads(line)
+
+                # Assuming the JSON structure is a dictionary with a "story" field
+                story = data.get("story", None)
+
+                test_stories.append(story)
+            except json.JSONDecodeError as e:
+                print(f"Error decoding JSON: {e}")
+
     model.eval()
 
     generations = []
-    for i in range(1024):
+    for i in range(100):
         with torch.no_grad():
-            output_tok = model.generate(inputs=inputs.cuda(), do_sample=True, max_length=block_size, min_length=block_size, return_dict_in_generate=False, output_scores=False)
+            tokenized_input = tokenizer([test_stories[i]], return_tensors="pt")['input_ids']
+            tokenized_input_trunc = tokenized_input[:, :tokenized_input.shape[1]//2]
+            output_tok = model.generate(inputs=tokenized_input_trunc.cuda(), do_sample=True, max_length=block_size, return_dict_in_generate=False, output_scores=False)
+            original = tokenizer.decode(tokenized_input[0], skip_special_tokens=True)
+            prompt = tokenizer.decode(tokenized_input_trunc[0], skip_special_tokens=True)
             output = tokenizer.decode(output_tok[0], skip_special_tokens=True)
-            print(output)
+            print('original:', original)
+            print('prompt:', prompt)
+            print('output:', output)
             print('\n')
 
             generations.append(output)
