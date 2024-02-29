@@ -3,7 +3,7 @@
 #SBATCH --gres=gpu:a100:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=240GB
-#SBATCH --time=48:00:00
+#SBATCH --time=2:00:00
 #SBATCH --job-name=train_gpt2_tinystories_30000
 #SBATCH --output=train_gpt2_tinystories_30000_%A_%a.out
 #SBATCH --array=0

@@ -169,11 +169,11 @@ def main():
         with torch.no_grad():
             tokenized_input = tokenizer([test_stories[i]], return_tensors="pt")['input_ids']
             tokenized_input_trunc = tokenized_input[:, :tokenized_input.shape[1]//2]
-            output_tok = model.generate(inputs=tokenized_input_trunc.cuda(), do_sample=True, max_length=block_size, return_dict_in_generate=False, output_scores=False)
+            output_tok = model.generate(inputs=tokenized_input_trunc.cuda(), do_sample=True, max_length=tokenized_input.shape[1], return_dict_in_generate=False, output_scores=False)
             original = tokenizer.decode(tokenized_input[0], skip_special_tokens=True)
             prompt = tokenizer.decode(tokenized_input_trunc[0], skip_special_tokens=True)
             output = tokenizer.decode(output_tok[0], skip_special_tokens=True)
-            print('original:', original)
+            print('origin:', original)
             print('prompt:', prompt)
             print('output:', output)
             print('\n')
