@@ -43,10 +43,12 @@ from transformers import (
     MODEL_MAPPING,
     AutoConfig,
     AutoModelForCausalLM,
-    PreTrainedTokenizerFast,
+    AutoTokenizer,
     default_data_collator,
 )
 from transformers.utils.versions import require_version
+from datetime import timedelta
+from accelerate import InitProcessGroupKwargs
 
 
 logger = get_logger(__name__)
@@ -80,7 +82,7 @@ def parse_args():
     parser.add_argument('--val_files', nargs='+', help="list of files containing the validation data")
     parser.add_argument("--model_name_or_path", type=str, help="Path to pretrained model or model identifier from huggingface.co/models.", required=False)
     parser.add_argument("--config_name", type=str, default=None, help="Pretrained config name or path if not the same as model_name")
-    parser.add_argument("--tokenizer_file", type=str, default=None, help="Pretrained tokenizer path")
+    parser.add_argument("--tokenizer_name", type=str, default=None, help="Tokenizer name")
     parser.add_argument("--per_device_train_batch_size", type=int, default=8, help="Batch size (per device) for the training dataloader.")
     parser.add_argument("--learning_rate", type=float, default=0.0001, help="Initial learning rate (after the potential warmup period) to use.")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay to use.")
@@ -113,7 +115,8 @@ def main():
     print(args)
 
     # Initialize the accelerator
-    accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps)
+    process_group_kwargs = InitProcessGroupKwargs(timeout=timedelta(seconds=3600))  # 1 hour
+    accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps, kwargs_handlers=[process_group_kwargs])
     
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.INFO)
@@ -157,39 +160,32 @@ def main():
     # Load pretrained model and tokenizer
     # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently download model & vocab.
     if args.config_name:
-        config = AutoConfig.from_pretrained(args.config_name)
+        config = AutoConfig.from_pretrained(args.config_name, token=True)
     elif args.model_name_or_path:
-        config = AutoConfig.from_pretrained(args.model_name_or_path)
+        config = AutoConfig.from_pretrained(args.model_name_or_path, token=True)
     else:
         config = CONFIG_MAPPING[args.model_type]()
         logger.warning("You are instantiating a new config instance from scratch.")
 
-    config.bos_token_id = 26412
-    config.eos_token_id = 26413
-
-    if args.tokenizer_file:
-        tokenizer = PreTrainedTokenizerFast(
-            tokenizer_file=args.tokenizer_file,
-            unk_token="[UNK]",
-            pad_token="[PAD]",
-            cls_token="[CLS]",
-            sep_token="[SEP]",
-            mask_token="[MASK]"
-            )
+    if args.tokenizer_name:
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=True, model_max_length=1024, token=True)  # TODO: pass this more beautifully
+    elif args.model_name_or_path:
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=True, model_max_length=1024, token=True)  # TODO: pass this more beautifully
+        if args.model_name_or_path.startswith("meta-llama") or args.model_name_or_path.startswith("gpt2") or args.model_name_or_path.startswith("EleutherAI"):
+            tokenizer.pad_token = tokenizer.eos_token
     else:
-        raise ValueError("Please specify a valid tokenizer file path.")
+        raise ValueError("You are instantiating a new tokenizer from scratch. This is not supported by this script. You can do it from another script, save it, and load it from here, using --tokenizer_name.")
 
     if args.model_name_or_path and args.use_pretrained_weights:
         logger.info("Loading pretrained weights")
-        model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, from_tf=bool(".ckpt" in args.model_name_or_path), config=config)
+        model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, from_tf=bool(".ckpt" in args.model_name_or_path), config=config, token=True)
     else:
         logger.info("Training new model from scratch")
         model = AutoModelForCausalLM.from_config(config)
 
     model.resize_token_embeddings(new_num_tokens=len(tokenizer), pad_to_multiple_of=128)
-    print('Tokenizer len:', len(tokenizer))
-    print('Pad token id:', tokenizer.pad_token_id)
-    print('Model:', model)
+    logger.info(f"Tokenizer len: {len(tokenizer)}")
+    logger.info(f"Pad token id: {tokenizer.pad_token_id}")
 
     # Preprocessing the datasets. First we tokenize all the texts.
     column_names = raw_datasets["train"].column_names
@@ -206,7 +202,7 @@ def main():
             logger.warning(f"The block_size passed ({args.block_size}) is larger than the maximum length for the model ({tokenizer.model_max_length}). Using block_size={tokenizer.model_max_length}.")
             block_size = tokenizer.model_max_length
 
-    print('Block size:', block_size)
+    logger.info(f"Block size: {block_size}")
 
     # TODO: revert this back later on
     def tokenize_function(examples):
@@ -217,7 +213,7 @@ def main():
 
     with accelerator.main_process_first():
         tokenized_datasets = raw_datasets.map(
-            tokenize_function,
+            tokenize_function_original,
             batched=True,
             num_proc=args.preprocessing_num_workers,
             remove_columns=column_names,
@@ -246,7 +242,7 @@ def main():
     
     with accelerator.main_process_first():
         lm_datasets = tokenized_datasets.map(
-            preprocess_function,
+            preprocess_function_original,
             batched=True,
             num_proc=args.preprocessing_num_workers,
             load_from_cache_file=not args.overwrite_cache,
@@ -257,7 +253,7 @@ def main():
     train_dataset = lm_datasets["train"]
     val_dataset = lm_datasets["validation"]
     train_dataloader = DataLoader(train_dataset, shuffle=True, collate_fn=default_data_collator, batch_size=args.per_device_train_batch_size)
-    val_dataloader = DataLoader(val_dataset, shuffle=False, collate_fn=default_data_collator, batch_size=2*args.per_device_train_batch_size)  # val batch size is 2x train batch size
+    val_dataloader = DataLoader(val_dataset, shuffle=False, collate_fn=default_data_collator, batch_size=2*args.per_device_train_batch_size)  # val batch size = 2x train batch size
 
     # Log a few random samples from the training set:
     for index in random.sample(range(len(train_dataset)), 3):
@@ -266,8 +262,8 @@ def main():
 
     model = accelerator.prepare(model)
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print("Model = %s" % str(model))
-    print('number of params (M): %.2f' % (n_parameters / 1.e6))
+    logger.info(f"Model = {model}")
+    logger.info(f"Number of params (M): {n_parameters / 1.e6}")
 
     # Optimizer: split weights in two groups, one with weight decay and the other not.
     no_decay = ["bias", "layer_norm.weight"]

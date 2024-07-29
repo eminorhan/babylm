@@ -101,7 +101,7 @@ def main():
     if args.config_name:
         config = AutoConfig.from_pretrained(args.config_name)
     elif args.model_name_or_path:
-        config = AutoConfig.from_pretrained(args.model_name_or_path)
+        config = AutoConfig.from_pretrained(args.model_name_or_path, trust_remote_code=True)
     else:
         config = CONFIG_MAPPING[args.model_type]()
         logger.warning("You are instantiating a new config instance from scratch.")
@@ -109,13 +109,13 @@ def main():
     if args.tokenizer_name:
         tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=not args.use_slow_tokenizer)  
     elif args.model_name_or_path:
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=not args.use_slow_tokenizer)
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=not args.use_slow_tokenizer, trust_remote_code=True)
     else:
         raise ValueError("You are instantiating a new tokenizer from scratch. This is not supported by this script. You can do it from another script, save it, and load it from here, using --tokenizer_name.")
 
     if args.model_name_or_path:
         logger.info("Loading pretrained weights")
-        model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, from_tf=bool(".ckpt" in args.model_name_or_path), config=config)
+        model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, from_tf=bool(".ckpt" in args.model_name_or_path), config=config, trust_remote_code=True)
     else:
         logger.info("Training new model from scratch")
         model = AutoModelForCausalLM.from_config(config)
@@ -169,7 +169,7 @@ def main():
         with torch.no_grad():
             tokenized_input = tokenizer([test_stories[i]], return_tensors="pt")['input_ids']
             tokenized_input_trunc = tokenized_input[:, :tokenized_input.shape[1]//2]
-            output_tok = model.generate(inputs=tokenized_input_trunc.cuda(), do_sample=True, max_length=tokenized_input.shape[1], return_dict_in_generate=False, output_scores=False)
+            output_tok = model.generate(inputs=tokenized_input_trunc.cuda(), do_sample=True, max_length=tokenizer.model_max_length, return_dict_in_generate=False, output_scores=False)
             original = tokenizer.decode(tokenized_input[0], skip_special_tokens=True)
             prompt = tokenizer.decode(tokenized_input_trunc[0], skip_special_tokens=True)
             output = tokenizer.decode(output_tok[0], skip_special_tokens=True)
