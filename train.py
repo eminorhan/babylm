@@ -50,7 +50,6 @@ from transformers.utils.versions import require_version
 from datetime import timedelta
 from accelerate import InitProcessGroupKwargs
 
-
 logger = get_logger(__name__)
 
 require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/language-modeling/requirements.txt")
@@ -259,10 +258,9 @@ def main():
         logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
         logger.info(f"Sample {index} of the training set (decoded): {tokenizer.decode(train_dataset[index]['input_ids'], skip_special_tokens=True)}.")
 
-    model = accelerator.prepare(model)
-    n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"Model = {model}")
-    logger.info(f"Number of params (M): {n_parameters / 1.e6}")
+    logger.info(f"Number of params (M): {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1.e6}")
+    model = accelerator.prepare(model)
 
     # Optimizer: split weights in two groups, one with weight decay and the other not.
     no_decay = ["bias", "layer_norm.weight"]
