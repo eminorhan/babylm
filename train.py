@@ -382,7 +382,7 @@ def main():
 
             # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
-                progress_bar.set_description(f"lr: {lr_scheduler.value}")
+                progress_bar.set_description(f"lr: {lr_scheduler.scheduler.get_last_lr()[0]}")
                 progress_bar.update(1)
                 completed_steps += 1
 
