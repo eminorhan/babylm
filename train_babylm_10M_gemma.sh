@@ -3,9 +3,9 @@
 #SBATCH --gres=gpu:h100:4
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=480GB
-#SBATCH --time=00:15:00
-#SBATCH --job-name=train_babylm_10M
-#SBATCH --output=train_babylm_10M_%A_%a.out
+#SBATCH --time=00:10:00
+#SBATCH --job-name=train_babylm_10M_gemma
+#SBATCH --output=train_babylm_10M_gemma_%A_%a.out
 #SBATCH --array=0
 
 export HF_HOME="/vast/eo41/huggingface"
@@ -13,10 +13,10 @@ export HF_DATASETS_CACHE="/vast/eo41/huggingface"
 
 # root model directory
 MODEL_ROOT_DIR="/vast/eo41/babylm/models"
-SP="babylm_10M"
+SP="babylm_10M_gemma"
 
 accelerate launch --config_file accelerate_4gpu_config.yaml --num_cpu_threads_per_process 16 /scratch/eo41/babylm/train.py \
-    --model_name_or_path "meta-llama/Meta-Llama-3.1-8B" \
+    --model_name_or_path "google/gemma-2-2b-it" \
     --train_files "data/text_data/train_10M/childes.txt" \
                   "data/text_data/train_10M/bnc_spoken.txt" \
                   "data/text_data/train_10M/gutenberg.txt" \
@@ -29,13 +29,13 @@ accelerate launch --config_file accelerate_4gpu_config.yaml --num_cpu_threads_pe
                 "data/text_data/dev/open_subtitles.txt" \
                 "data/text_data/dev/simple_wiki.txt" \
                 "data/text_data/dev/switchboard.txt" \
-    --per_device_train_batch_size 4 \
-    --gradient_accumulation_steps 32 \
+    --per_device_train_batch_size 128 \
+    --gradient_accumulation_steps 1 \
     --learning_rate 0.0001 \
     --output_dir "${MODEL_ROOT_DIR}/${SP}" \
     --save_prefix ${SP} \
     --block_size 1024 \
-    --num_train_epochs 1000 \
+    --num_train_epochs 1 \
     --checkpointing_steps 1000 \
     --overwrite_cache
 
