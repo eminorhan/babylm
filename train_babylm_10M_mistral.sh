@@ -1,11 +1,11 @@
 #!/bin/bash
 
-#SBATCH --gres=gpu:a100:4
+#SBATCH --gres=gpu:h100:4
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=480GB
 #SBATCH --time=00:10:00
-#SBATCH --job-name=train_babylm_10M_llama
-#SBATCH --output=train_babylm_10M_llama_%A_%a.out
+#SBATCH --job-name=train_babylm_10M_mistral
+#SBATCH --output=train_babylm_10M_mistral_%A_%a.out
 #SBATCH --array=0
 
 export HF_HOME="/vast/eo41/huggingface"
@@ -13,10 +13,10 @@ export HF_DATASETS_CACHE="/vast/eo41/huggingface"
 
 # root model directory
 MODEL_ROOT_DIR="/vast/eo41/babylm/models"
-SP="babylm_10M_llama"
+SP="babylm_10M_mistral"
 
 accelerate launch --config_file accelerate_4gpu_config.yaml --num_cpu_threads_per_process 16 /scratch/eo41/babylm/train.py \
-    --model_name_or_path "meta-llama/Meta-Llama-3.1-8B" \
+    --model_name_or_path "mistralai/Mistral-7B-v0.3" \
     --train_files "data/text_data/train_10M/childes.txt" \
                   "data/text_data/train_10M/bnc_spoken.txt" \
                   "data/text_data/train_10M/gutenberg.txt" \
