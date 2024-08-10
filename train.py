@@ -77,8 +77,6 @@ def check_file_extensions(file_list):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Finetune large language models on causal language modeling tasks")
-    parser.add_argument("--dataset_name", type=str, default=None, help="The name of the dataset to use (via the datasets library).")
-    parser.add_argument("--dataset_config_name", type=str, default=None, help="The configuration name of the dataset to use (via the datasets library).")
     parser.add_argument('--train_files', nargs='+', help="list of files containing the training data")
     parser.add_argument('--val_files', nargs='+', help="list of files containing the validation data")
     parser.add_argument("--model_name_or_path", type=str, help="Path to pretrained model or model identifier from huggingface.co/models.", required=False)
@@ -207,9 +205,9 @@ def main():
 
     logger.info(f"Block size: {block_size}")
 
-    # TODO: revert this back later on
-    def tokenize_function(examples):
-        return tokenizer(examples[text_column_name], padding='max_length', truncation=True, max_length=block_size)
+    # # alternative (non-sequence-packing) tokenization 
+    # def tokenize_function(examples):
+    #     return tokenizer(examples[text_column_name], padding='max_length', truncation=True, max_length=block_size)
 
     def tokenize_function_original(examples):
         return tokenizer(examples[text_column_name])
@@ -224,12 +222,12 @@ def main():
             desc="Running tokenizer on dataset",
         )
 
-    # Main data processing function. First version reads line by line
-    def preprocess_function(examples):
-        examples["labels"] = examples["input_ids"].copy()
-        # pad token must be set to -100 in labels to make sure it's ignored when computing the loss
-        examples["labels"] = [[(l if l != tokenizer.pad_token_id else -100) for l in label] for label in examples["labels"]]
-        return examples
+    # # Main data processing function. First version reads line by line
+    # def preprocess_function(examples):
+    #     examples["labels"] = examples["input_ids"].copy()
+    #     # pad token must be set to -100 in labels to make sure it's ignored when computing the loss
+    #     examples["labels"] = [[(l if l != tokenizer.pad_token_id else -100) for l in label] for label in examples["labels"]]
+    #     return examples
 
     def preprocess_function_original(examples):
         # Concatenate all texts (aka sequence packing).
@@ -291,10 +289,6 @@ def main():
 
     # Prepare everything with our `accelerator`.
     optimizer, train_dataloader, val_dataloader, lr_scheduler = accelerator.prepare(optimizer, train_dataloader, val_dataloader, lr_scheduler)
-
-    # On TPU, the tie weights in our model have been disconnected, so we need to restore the ties.
-    if accelerator.distributed_type == DistributedType.TPU:
-        model.tie_weights()
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
