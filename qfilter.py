@@ -214,7 +214,8 @@ def main():
         with torch.no_grad():
             outputs = model(**batch)
             loss = outputs.loss
-            print(loss, tokenizer.decode(batch['input_ids']))  # TODO: check this is correct
+            logger.info(f"batch shape: {batch['input_ids'].shape}")
+            logger.info(f"loss: {loss}, decoded sentence: {tokenizer.decode(batch['input_ids'].squeeze(), skip_special_tokens=True)}")  # TODO: check this is correct
             losses.append(accelerator.gather_for_metrics(loss.repeat(args.per_device_eval_batch_size)))
 
     losses = torch.cat(losses)
