@@ -18,11 +18,11 @@ SP="qfilter_10M_llama"
 accelerate launch --config_file accelerate_1gpu_config.yaml --num_cpu_threads_per_process 16 /scratch/eo41/babylm/qfilter.py \
     --model_name_or_path "meta-llama/Meta-Llama-3.1-8B" \
     --data_files "data/text_data/train_10M/childes.txt" \
-                  "data/text_data/train_10M/bnc_spoken.txt" \
-                  "data/text_data/train_10M/gutenberg.txt" \
-                  "data/text_data/train_10M/open_subtitles.txt" \
-                  "data/text_data/train_10M/simple_wiki.txt" \
-                  "data/text_data/train_10M/switchboard.txt" \
+                 "data/text_data/train_10M/bnc_spoken.txt" \
+                 "data/text_data/train_10M/gutenberg.txt" \
+                 "data/text_data/train_10M/open_subtitles.txt" \
+                 "data/text_data/train_10M/simple_wiki.txt" \
+                 "data/text_data/train_10M/switchboard.txt" \
     --per_device_eval_batch_size 1 \
     --output_dir "${MODEL_ROOT_DIR}/${SP}" \
     --save_prefix ${SP} \

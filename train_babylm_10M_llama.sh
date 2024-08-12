@@ -29,13 +29,13 @@ accelerate launch --config_file accelerate_4gpu_config.yaml --num_cpu_threads_pe
                 "data/text_data/dev/open_subtitles.txt" \
                 "data/text_data/dev/simple_wiki.txt" \
                 "data/text_data/dev/switchboard.txt" \
-    --per_device_train_batch_size 6 \
+    --per_device_train_batch_size 4 \
     --gradient_accumulation_steps 16 \
     --learning_rate 0.0001 \
     --output_dir "${MODEL_ROOT_DIR}/${SP}" \
     --save_prefix ${SP} \
     --block_size 1024 \
-    --num_train_epochs 250 \
+    --num_train_epochs 200 \
     --checkpointing_steps 1000 \
     --overwrite_cache
 

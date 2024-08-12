@@ -210,21 +210,36 @@ def main():
 
     # pass examples
     losses = []
-    for _, batch in enumerate(dataloader):
+    batches = []
+    for idx, batch in enumerate(dataloader):
         with torch.no_grad():
             outputs = model(**batch)
             loss = outputs.loss
-            logger.info(f"batch shape: {batch['input_ids'].shape}")
-            logger.info(f"loss: {loss}, decoded sentence: {tokenizer.decode(batch['input_ids'].squeeze(), skip_special_tokens=True)}")  # TODO: check this is correct
-            losses.append(accelerator.gather_for_metrics(loss.repeat(args.per_device_eval_batch_size)))
+            
+            # log at regular intervals
+            if idx % 10 == 0:
+                logger.info(f"batch idx: {idx} of {len(dataloader)}; batch shape: {batch['input_ids'].shape}; loss shape: {loss.shape}")
 
-    losses = torch.cat(losses)
-    losses = losses.cpu().numpy()
-    logger.info(f"Evaluated the seen examples. Losses shape = {losses.shape}")
+            losses.append(loss.cpu())
+            batches.append(batch['input_ids'].cpu())
+
+    losses, indices = torch.sort(torch.tensor(losses))
+    batches = torch.cat(batches)[indices, :]
+    losses, batches = losses.bfloat16(), batches.int()
+    logger.info(f"Evaluated the examples. Losses shape (dtype) = {losses.shape} ({losses.dtype}); Batches shape (dtype) = {batches.shape} ({batches.dtype})")
+
+    # log a few examples: top 3
+    logger.info(f"loss: {losses[0]}, decoded sentence: {tokenizer.decode(batches[0, :], skip_special_tokens=True)}")
+    logger.info(f"loss: {losses[1]}, decoded sentence: {tokenizer.decode(batches[1, :], skip_special_tokens=True)}")
+    logger.info(f"loss: {losses[2]}, decoded sentence: {tokenizer.decode(batches[2, :], skip_special_tokens=True)}")
+    # log a few examples: bottom 3
+    logger.info(f"loss: {losses[-1]}, decoded sentence: {tokenizer.decode(batches[-1, :], skip_special_tokens=True)}")
+    logger.info(f"loss: {losses[-2]}, decoded sentence: {tokenizer.decode(batches[-2, :], skip_special_tokens=True)}")
+    logger.info(f"loss: {losses[-3]}, decoded sentence: {tokenizer.decode(batches[-3, :], skip_special_tokens=True)}")
 
     # save results
-    save_path = os.path.join(args.output_dir, args.save_prefix + '_results.npz')
-    np.savez(save_path, seen_losses=losses)
+    save_path = os.path.join(args.output_dir, args.save_prefix + '_results.pth')
+    torch.save({'losses': losses, 'batches': batches}, save_path)
 
 if __name__ == "__main__":
     main()
