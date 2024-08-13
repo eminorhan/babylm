@@ -253,7 +253,7 @@ def main():
     train_dataset = lm_datasets["train"]
     val_dataset = lm_datasets["validation"]
     train_dataloader = DataLoader(train_dataset, shuffle=True, collate_fn=default_data_collator, batch_size=args.per_device_train_batch_size)
-    val_dataloader = DataLoader(val_dataset, shuffle=False, collate_fn=default_data_collator, batch_size=2*args.per_device_train_batch_size)  # val batch size = 2x train batch size
+    val_dataloader = DataLoader(val_dataset, shuffle=False, collate_fn=default_data_collator, batch_size=args.per_device_train_batch_size)
 
     # Log a few random samples from the training set:
     for index in random.sample(range(len(train_dataset)), 3):
