@@ -347,10 +347,9 @@ def main():
     progress_bar.update(starting_epoch * num_update_steps_per_epoch)
     completed_steps = starting_epoch * num_update_steps_per_epoch
 
-    train_losses = []
-    train_losses_all = []
-    val_losses = []
-    val_losses_all = []
+    # initialize loss counters
+    train_loss = 0
+    val_loss = 0
 
     for epoch in range(starting_epoch, args.num_train_epochs):
         model.train()
@@ -366,9 +365,8 @@ def main():
             with accelerator.accumulate(model):
                 outputs = model(**batch)
                 loss = outputs.loss
-                # keep track of the loss at each epoch
-                train_losses.append(loss.detach().unsqueeze(0))
-                train_losses_all.append(loss.detach().unsqueeze(0))
+                # keep track of the train loss
+                train_loss += loss.detach().float()
                 accelerator.backward(loss)
                 optimizer.step()
                 lr_scheduler.step()
@@ -381,7 +379,8 @@ def main():
                 completed_steps += 1
 
             if isinstance(checkpointing_steps, int):
-                if completed_steps % checkpointing_steps == 0 and completed_steps != 0:
+                # the last clause makes sure checkpointing is done once only with gradient accumulation
+                if completed_steps % checkpointing_steps == 0 and completed_steps != 0 and step % args.gradient_accumulation_steps == 0:
                     output_dir = f"step_{completed_steps}"
                     if args.output_dir is not None:
                         output_dir = os.path.join(args.output_dir, output_dir)
@@ -393,12 +392,9 @@ def main():
                     if accelerator.is_main_process:
                         tokenizer.save_pretrained(output_dir)
 
-                    # save train_losses
-                    train_losses_ckpt = torch.cat(train_losses)
-                    train_losses_ckpt = train_losses_ckpt.cpu().numpy()
-                    train_losses_all_ckpt = torch.cat(train_losses_all)
-                    train_losses_all_ckpt = train_losses_all_ckpt.cpu().numpy()
-                    logger.info(f"Mean train loss: {np.mean(train_losses_ckpt)}")
+                    # log train_loss & re-initialize
+                    logger.info(f"Mean train loss: {train_loss.item() / (checkpointing_steps * args.gradient_accumulation_steps)}")
+                    train_loss = 0
 
                     # save val losses 
                     model.eval()
@@ -406,22 +402,12 @@ def main():
                         with torch.no_grad():
                             outputs = model(**batch)
                             loss = outputs.loss
-                            # keep track of the loss at each epoch
-                            val_losses.append(loss.detach().unsqueeze(0))
-                            val_losses_all.append(loss.detach().unsqueeze(0))
+                            # keep track of the val loss
+                            val_loss += loss.detach().float()
 
-                    val_losses_ckpt = torch.cat(val_losses)
-                    val_losses_ckpt = val_losses_ckpt.cpu().numpy()
-                    val_losses_all_ckpt = torch.cat(val_losses_all)
-                    val_losses_all_ckpt = val_losses_all_ckpt.cpu().numpy()
-                    logger.info(f"Mean val loss: {np.mean(val_losses_ckpt)}")
-
-                    save_path = os.path.join(output_dir, 'losses.npz')
-                    np.savez(save_path, train_losses=train_losses_all_ckpt, val_losses_ckpt=val_losses_all_ckpt, completed_steps=completed_steps)
-
-                    # re-initialize losses
-                    train_losses = []
-                    val_losses = []
+                    # log val & re-initialize
+                    logger.info(f"Mean val loss: {val_loss.item() / len(val_dataloader)}")
+                    val_loss = 0
 
             if completed_steps >= args.max_train_steps:
                 break
