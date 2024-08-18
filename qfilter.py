@@ -193,11 +193,6 @@ def main():
     dataset = lm_datasets["train"]
     dataloader = DataLoader(dataset, shuffle=False, collate_fn=default_data_collator, batch_size=args.per_device_eval_batch_size)
 
-    # Log a few random samples from the training set:
-    for index in random.sample(range(len(dataset)), 3):
-        logger.info(f"Sample {index} of the training set: {dataset[index]}.")
-        logger.info(f"Sample {index} of the training set (decoded): {tokenizer.decode(dataset[index]['input_ids'], skip_special_tokens=True)}.")
-
     # Prepare everything with our `accelerator`.
     model, dataloader = accelerator.prepare(model, dataloader)
 
@@ -229,17 +224,35 @@ def main():
     logger.info(f"Evaluated the examples. Losses shape (dtype) = {losses.shape} ({losses.dtype}); Batches shape (dtype) = {batches.shape} ({batches.dtype})")
 
     # log a few examples: top 3
+    logger.info(f"===================================================== 0 % ============================================================================")
     logger.info(f"loss: {losses[0]}, decoded sentence: {tokenizer.decode(batches[0, :], skip_special_tokens=True)}")
     logger.info(f"loss: {losses[1]}, decoded sentence: {tokenizer.decode(batches[1, :], skip_special_tokens=True)}")
     logger.info(f"loss: {losses[2]}, decoded sentence: {tokenizer.decode(batches[2, :], skip_special_tokens=True)}")
+    # log a few examples
+    logger.info(f"===================================================== 25 % ============================================================================")
+    logger.info(f"loss: {losses[len(losses)//4 - 1]}, decoded sentence: {tokenizer.decode(batches[len(losses)//4 - 1, :], skip_special_tokens=True)}")
+    logger.info(f"loss: {losses[len(losses)//4]}, decoded sentence: {tokenizer.decode(batches[len(losses)//4, :], skip_special_tokens=True)}")
+    logger.info(f"loss: {losses[len(losses)//4 + 1]}, decoded sentence: {tokenizer.decode(batches[len(losses)//4 + 1, :], skip_special_tokens=True)}")
+    # log a few examples
+    logger.info(f"===================================================== 50 % ============================================================================")
+    logger.info(f"loss: {losses[2*len(losses)//4 - 1]}, decoded sentence: {tokenizer.decode(batches[2*len(losses)//4 - 1, :], skip_special_tokens=True)}")
+    logger.info(f"loss: {losses[2*len(losses)//4]}, decoded sentence: {tokenizer.decode(batches[2*len(losses)//4, :], skip_special_tokens=True)}")
+    logger.info(f"loss: {losses[2*len(losses)//4 + 1]}, decoded sentence: {tokenizer.decode(batches[2*len(losses)//4 + 1, :], skip_special_tokens=True)}")
+    # log a few examples
+    logger.info(f"===================================================== 75 % ============================================================================")
+    logger.info(f"loss: {losses[3*len(losses)//4 - 1]}, decoded sentence: {tokenizer.decode(batches[3*len(losses)//4 - 1, :], skip_special_tokens=True)}")
+    logger.info(f"loss: {losses[3*len(losses)//4]}, decoded sentence: {tokenizer.decode(batches[3*len(losses)//4, :], skip_special_tokens=True)}")
+    logger.info(f"loss: {losses[3*len(losses)//4 + 1]}, decoded sentence: {tokenizer.decode(batches[3*len(losses)//4 + 1, :], skip_special_tokens=True)}")
     # log a few examples: bottom 3
+    logger.info(f"===================================================== 100 % ============================================================================")
     logger.info(f"loss: {losses[-1]}, decoded sentence: {tokenizer.decode(batches[-1, :], skip_special_tokens=True)}")
     logger.info(f"loss: {losses[-2]}, decoded sentence: {tokenizer.decode(batches[-2, :], skip_special_tokens=True)}")
     logger.info(f"loss: {losses[-3]}, decoded sentence: {tokenizer.decode(batches[-3, :], skip_special_tokens=True)}")
 
     # save results
-    save_path = os.path.join(args.output_dir, args.save_prefix + '_results.pth')
-    torch.save({'losses': losses, 'batches': batches}, save_path)
+    torch.save({'losses': losses[:len(losses)//4], 'batches': batches[:len(losses)//4, :]}, os.path.join(args.output_dir, args.save_prefix + '_qsorted_tokens_25.pth'))
+    torch.save({'losses': losses[:2*len(losses)//4], 'batches': batches[:2*len(losses)//4, :]}, os.path.join(args.output_dir, args.save_prefix + '_qsorted_tokens_50.pth'))
+    torch.save({'losses': losses[:3*len(losses)//4], 'batches': batches[:3*len(losses)//4, :]}, os.path.join(args.output_dir, args.save_prefix + '_qsorted_tokens_75.pth'))
 
 if __name__ == "__main__":
     main()

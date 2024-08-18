@@ -3,7 +3,7 @@
 #SBATCH --gres=gpu:a100:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=240GB
-#SBATCH --time=1:00:00
+#SBATCH --time=00:40:00
 #SBATCH --job-name=qfilter_10M_llama
 #SBATCH --output=qfilter_10M_llama_%A_%a.out
 #SBATCH --array=0
