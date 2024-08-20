@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --gres=gpu:h100:4
+#SBATCH --gres=gpu:a100:4
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=480GB
 #SBATCH --time=48:00:00
@@ -36,7 +36,7 @@ accelerate launch --config_file accelerate_4gpu_config.yaml --num_cpu_threads_pe
     --save_prefix ${SP} \
     --block_size 1024 \
     --num_train_epochs 20 \
-    --checkpointing_steps 100 \
+    --checkpointing_steps 1000 \
     --overwrite_cache
 
 echo "Done"

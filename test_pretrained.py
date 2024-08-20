@@ -1,12 +1,10 @@
 import argparse
 import logging
 import os
-import random
 from itertools import chain
 
 import datasets
 import torch
-import numpy as np
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 
@@ -52,12 +50,10 @@ def check_file_extensions(file_list):
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate recognition memory in large language models")
     parser.add_argument('--data_files', nargs='+', help="list of files containing the training data")
-    parser.add_argument("--save_prefix", type=str, default='', help="Informative string for saving purposes")
     parser.add_argument("--model_name_or_path", type=str, help="Path to pretrained model or model identifier from huggingface.co/models.", required=False)
     parser.add_argument("--config_name", type=str, default=None, help="Pretrained config name or path if not the same as model_name")
     parser.add_argument("--tokenizer_name", type=str, default=None, help="Pretrained tokenizer name or path if not the same as model_name")
     parser.add_argument("--per_device_eval_batch_size", type=int, default=8, help="Batch size (per device) for the evaluation dataloader.")
-    parser.add_argument("--output_dir", type=str, default=None, help="Where to store the final model.")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument("--model_type", type=str, default=None, help="Model type to use if training from scratch.", choices=MODEL_TYPES)
     parser.add_argument("--block_size", type=int, default=None, help="The training dataset will be truncated to blocks of this size (after tokenization) for training.")
@@ -96,10 +92,6 @@ def main():
     if args.seed is not None:
         set_seed(args.seed)
 
-    # Handle the repository creation
-    if accelerator.is_main_process:
-        if args.output_dir is not None:
-            os.makedirs(args.output_dir, exist_ok=True)
     accelerator.wait_for_everyone()
 
     # In distributed training, 'load_dataset' function guarantee that only one local process can concurrently download the dataset.
@@ -221,11 +213,9 @@ def main():
     losses, indices = torch.sort(torch.tensor(losses))
     batches = torch.cat(batches)[indices, :]
     losses, batches = losses.bfloat16(), batches.int()
-    logger.info(f"Evaluated the examples. Losses shape (dtype) = {losses.shape} ({losses.dtype}); Batches shape (dtype) = {batches.shape} ({batches.dtype})")
+    logger.info(f"Evaluated the examples. Losses shape (dtype) = {losses.shape} ({losses.dtype}); Batches shape (type) = {batches.shape} ({batches.dtype})")
     logger.info(f"Mean-std = {torch.mean(losses)}-{torch.std(losses)}. Max-min = {torch.max(losses)}-{torch.min(losses)}")
 
-    # save results
-    torch.save({'losses': losses, 'batches': batches}, os.path.join(args.output_dir, args.save_prefix + '_qsorted_tokens.pth'))
 
 if __name__ == "__main__":
     main()
