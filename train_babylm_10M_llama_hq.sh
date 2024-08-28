@@ -3,7 +3,7 @@
 #SBATCH --gres=gpu:a100:4
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=480GB
-#SBATCH --time=4:00:00
+#SBATCH --time=9:00:00
 #SBATCH --job-name=train_babylm_10M_llama_hq
 #SBATCH --output=train_babylm_10M_llama_hq_%A_%a.out
 #SBATCH --array=0
@@ -27,7 +27,7 @@ accelerate launch --config_file accelerate_4gpu_config.yaml --num_cpu_threads_pe
     --output_dir "${MODEL_ROOT_DIR}/${SP}" \
     --save_prefix ${SP} \
     --block_size 1024 \
-    --num_train_epochs 10 \
+    --num_train_epochs 50 \
     --checkpointing_steps 100 \
     --overwrite_cache
 
