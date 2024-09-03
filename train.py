@@ -29,7 +29,6 @@ from itertools import chain
 
 import datasets
 import torch
-import numpy as np
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
@@ -156,9 +155,6 @@ def main():
         dataset_args["keep_linebreaks"] = not args.no_keep_linebreaks
     raw_datasets = load_dataset(extension, data_files=data_files, **dataset_args)
 
-    # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
-    # https://huggingface.co/docs/datasets/loading_datasets.html.
-
     # Load pretrained model and tokenizer
     # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently download model & vocab.
     if args.config_name:
@@ -170,8 +166,7 @@ def main():
         logger.warning("You are instantiating a new config instance from scratch.")
 
     if args.tokenizer_name:
-        tokenizer = PreTrainedTokenizerFast(tokenizer_file=args.tokenizer_name)
-        # tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=True, model_max_length=1024, token=True)  # TODO: pass this more beautifully
+        tokenizer = PreTrainedTokenizerFast(tokenizer_file=args.tokenizer_name, unk_token="[UNK]", pad_token="[PAD]", cls_token="[CLS]", sep_token="[SEP]", mask_token="[MASK]")
     elif args.model_name_or_path:
         tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=True, model_max_length=1024, token=True)  # TODO: pass this more beautifully
         if args.model_name_or_path.startswith("meta-llama") or args.model_name_or_path.startswith("gpt2") or args.model_name_or_path.startswith("EleutherAI"):
@@ -207,10 +202,6 @@ def main():
 
     logger.info(f"Block size: {block_size}")
 
-    # # alternative (non-sequence-packing) tokenization 
-    # def tokenize_function(examples):
-    #     return tokenizer(examples[text_column_name], padding='max_length', truncation=True, max_length=block_size)
-
     def tokenize_function_original(examples):
         return tokenizer(examples[text_column_name])
 
@@ -223,13 +214,6 @@ def main():
             load_from_cache_file=not args.overwrite_cache,
             desc="Running tokenizer on dataset",
         )
-
-    # # Main data processing function. First version reads line by line
-    # def preprocess_function(examples):
-    #     examples["labels"] = examples["input_ids"].copy()
-    #     # pad token must be set to -100 in labels to make sure it's ignored when computing the loss
-    #     examples["labels"] = [[(l if l != tokenizer.pad_token_id else -100) for l in label] for label in examples["labels"]]
-    #     return examples
 
     def preprocess_function_original(examples):
         # Concatenate all texts (aka sequence packing).

@@ -3,9 +3,9 @@
 #SBATCH --gres=gpu:a100:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=240GB
-#SBATCH --time=48:00:00
-#SBATCH --job-name=train_babylm_100M_gpt_16k
-#SBATCH --output=train_babylm_100M_gpt_16k_%A_%a.out
+#SBATCH --time=16:00:00
+#SBATCH --job-name=train_babylm_100M_gpt
+#SBATCH --output=train_babylm_100M_gpt_%A_%a.out
 #SBATCH --array=0
 
 export HF_HOME="/vast/eo41/huggingface"
@@ -16,8 +16,7 @@ MODEL_ROOT_DIR="/vast/eo41/babylm/models"
 SP="babylm_100M_gpt"
 
 accelerate launch --config_file accelerate_1gpu_config.yaml --num_cpu_threads_per_process 16 /scratch/eo41/babylm/train.py \
-    --model_name_or_path "gpt2-large" \
-    --tokenizer_name 'babylm_tokenizer_16k.json' \
+    --model_name_or_path "gpt2-medium" \
     --train_files "data/text_data/train_100M/childes.txt" \
                   "data/text_data/train_100M/bnc_spoken.txt" \
                   "data/text_data/train_100M/gutenberg.txt" \
@@ -30,8 +29,8 @@ accelerate launch --config_file accelerate_1gpu_config.yaml --num_cpu_threads_pe
                 "data/text_data/dev/open_subtitles.txt" \
                 "data/text_data/dev/simple_wiki.txt" \
                 "data/text_data/dev/switchboard.txt" \
-    --per_device_train_batch_size 8 \
-    --gradient_accumulation_steps 8 \
+    --per_device_train_batch_size 16 \
+    --gradient_accumulation_steps 4 \
     --learning_rate 0.0001 \
     --output_dir "${MODEL_ROOT_DIR}/${SP}" \
     --save_prefix ${SP} \
