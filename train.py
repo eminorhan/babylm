@@ -35,7 +35,7 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 import transformers
-from accelerate import Accelerator, DistributedType
+from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import set_seed
 from transformers import (
@@ -44,6 +44,7 @@ from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
     AutoTokenizer,
+    PreTrainedTokenizerFast,
     SchedulerType,
     default_data_collator,
     get_scheduler
@@ -169,7 +170,8 @@ def main():
         logger.warning("You are instantiating a new config instance from scratch.")
 
     if args.tokenizer_name:
-        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=True, model_max_length=1024, token=True)  # TODO: pass this more beautifully
+        tokenizer = PreTrainedTokenizerFast(tokenizer_file=args.tokenizer_name)
+        # tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=True, model_max_length=1024, token=True)  # TODO: pass this more beautifully
     elif args.model_name_or_path:
         tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=True, model_max_length=1024, token=True)  # TODO: pass this more beautifully
         if args.model_name_or_path.startswith("meta-llama") or args.model_name_or_path.startswith("gpt2") or args.model_name_or_path.startswith("EleutherAI"):

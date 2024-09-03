@@ -3,7 +3,7 @@
 #SBATCH --gres=gpu:a100:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=240GB
-#SBATCH --time=2:00:00
+#SBATCH --time=1:00:00
 #SBATCH --job-name=dpo_babylm_100M_gpt
 #SBATCH --output=dpo_babylm_100M_gpt_%A_%a.out
 #SBATCH --array=10
@@ -27,11 +27,12 @@ accelerate launch --config_file accelerate_1gpu_config.yaml --num_cpu_threads_pe
     --model_name_or_path $MODEL_PATH \
     --dataset_name trl-internal-testing/hh-rlhf-helpful-base-trl-style \
     --per_device_train_batch_size 6 \
-    --gradient_accumulation_steps 1 \
+    --gradient_accumulation_steps 16 \
     --learning_rate 0.0001 \
     --output_dir /scratch/projects/lakelab/dpo_hh/${BASE_MODEL}/${MODEL_BASENAME} \
-    --num_train_epochs 2 \
+    --num_train_epochs 1 \
     --logging_steps 10 \
+    --save_steps 10 \
     --eval_steps 10 \
     --max_length 1024 \
     --max_prompt_length 512 \
