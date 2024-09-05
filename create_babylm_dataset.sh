@@ -4,7 +4,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=16GB
-#SBATCH --time=2:00:00
+#SBATCH --time=3:00:00
 #SBATCH --job-name=create_babylm_dataset
 #SBATCH --output=create_babylm_dataset_%A_%a.out
 
