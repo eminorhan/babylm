@@ -68,8 +68,8 @@ def parse_args():
 
     args = parser.parse_args()
 
-    # Sanity check for file extensions
-    check_file_extensions(args.data_files)
+    # # Sanity check for file extensions
+    # check_file_extensions(args.data_files)
 
     return args
 
@@ -103,13 +103,14 @@ def main():
     accelerator.wait_for_everyone()
 
     # In distributed training, 'load_dataset' function guarantee that only one local process can concurrently download the dataset.
-    data_files = {"train": args.data_files}
-    dataset_args = {}
-    extension = args.data_files[0].split(".")[-1]
-    if extension == "txt":
-        extension = "text"
-        dataset_args["keep_linebreaks"] = not args.no_keep_linebreaks
-    raw_datasets = load_dataset(extension, data_files=data_files, **dataset_args)
+    # data_files = {"train": args.data_files}
+    # dataset_args = {}
+    # extension = args.data_files[0].split(".")[-1]
+    # if extension == "txt":
+    #     extension = "text"
+    #     dataset_args["keep_linebreaks"] = not args.no_keep_linebreaks
+    # raw_datasets = load_dataset(extension, data_files=data_files, **dataset_args)
+    raw_datasets = load_dataset(args.data_files[0], args.data_files[1])
 
     # Load pretrained model and tokenizer
     if args.config_name:
@@ -212,7 +213,7 @@ def main():
             loss = outputs.loss
             
             # log at regular intervals
-            if idx % 10 == 0:
+            if idx % 100 == 0:
                 logger.info(f"batch idx: {idx} of {len(dataloader)}; batch shape: {batch['input_ids'].shape}; loss shape: {loss.shape}")
 
             losses.append(loss.cpu())

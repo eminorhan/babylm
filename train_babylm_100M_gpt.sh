@@ -16,7 +16,7 @@ MODEL_ROOT_DIR="/vast/eo41/babylm/models"
 SP="babylm_100M_gpt"
 
 accelerate launch --config_file accelerate_1gpu_config.yaml --num_cpu_threads_per_process 16 /scratch/eo41/babylm/train.py \
-    --model_name_or_path "gpt2-medium" \
+    --model_name_or_path "gpt2-large" \
     --train_files "data/text_data/train_100M/childes.txt" \
                   "data/text_data/train_100M/bnc_spoken.txt" \
                   "data/text_data/train_100M/gutenberg.txt" \
