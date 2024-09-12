@@ -1,16 +1,12 @@
-import random
-import json
 import numpy as np
-from huggingface_hub import HfApi
 from datasets import load_dataset
 
-ds = load_dataset("wikimedia/wikipedia", "20231101.en")
-n = len(ds['train'])
-lens = np.zeros(n, dtype=int)
-print('Number of data instances:', n)
+ds = load_dataset("wikimedia/wikipedia", "20231101.en", split="train")
+lens = np.zeros(len(ds), dtype=int)
+print('Number of data instances:', len(ds))
 
-for i in range(n):
-    lens[i] = len(ds['train'][i]['text'].split())
+for i in range(len(ds)):
+    lens[i] = len(ds[i]['text'].split())
     if i % 100000 == 0:
         print(f"Article {i}; Length {lens[i]} words.")
 
@@ -19,65 +15,28 @@ print(f"Max words in dataset: {np.max(lens)}")
 print(f"Mean words in dataset: {np.mean(lens)}")
 print(f"Total words in dataset: {np.sum(lens)}")
 
-def select_items_to_target(y, x, target_length=10000000):
-    # Initialize list to hold selected items and their lengths
-    train_articles = []
-    val_articles = []
-    current_length_sum = 0
+def select_items_to_target(y, x, subset, target_length=10000000):
     
-    # Create a list of indices to sample from
-    indices = list(range(len(y)))
-    
-    while current_length_sum < target_length:
-        # Randomly pick an index
-        index = random.choice(indices)
-        
-        # Check if adding this item will exceed the target length
-        if current_length_sum + x[index] > target_length:
-            break
-        
-        # Add the item and update the sum
-        train_articles.append(y[index])
-        current_length_sum += x[index]
-        
-        # Remove the index to avoid picking the same item again
-        indices.remove(index)
+    # shuffle indices, pick the first n articles whose word count sum exceeds target length
+    indices = np.random.permutation(len(x))
+    x_shuffled_cumsum = np.cumsum(x[indices])
+    n = np.searchsorted(x_shuffled_cumsum, target_length, side="left")
 
-    # val data
-    for _ in range(1000):
-        index = random.choice(indices)
-        val_articles.append(y[index])
+    train_indices = indices[:n]
+    val_indices = indices[n:(n+1000)]
 
-    print(f"Total number of articles selected: {len(train_articles)}")
-    print(f"Total number of words: {current_length_sum}")
+    # select subset with given indices
+    train_dataset = y.select(train_indices)
+    val_dataset = y.select(val_indices)
 
-    return {'train': train_articles, 'validation': val_articles}
+    # push to hub
+    train_dataset.push_to_hub("eminorhan/random_wikipedia", subset, split="train", token=True)
+    val_dataset.push_to_hub("eminorhan/random_wikipedia", subset, split="validation", token=True)
 
-ds_10M = select_items_to_target(ds['train'], lens, target_length=10000000)
-ds_100M = select_items_to_target(ds['train'], lens, target_length=100000000)
+    print(f"Total number of articles selected: {n-1}")
+    print(f"Total number of words: {x_shuffled_cumsum[n-1]}")
 
-# Write the dictionaries to a JSON file
-with open('random_wikipedia_10M.json', 'w') as file:
-    json.dump(ds_10M, file, indent=4)  # indent=4 makes the JSON file more readable
+    return 
 
-with open('random_wikipedia_100M.json', 'w') as file:
-    json.dump(ds_100M, file, indent=4)
-
-api = HfApi()
-
-# upload data files
-api.upload_file(
-    path_or_fileobj="random_wikipedia_10M.json",
-    path_in_repo="10M/random_wikipedia_10M.json",
-    repo_id="eminorhan/random_wikipedia",
-    repo_type="dataset",
-    token=True
-)
-
-api.upload_file(
-    path_or_fileobj="random_wikipedia_100M.json",
-    path_in_repo="100M/random_wikipedia_100M.json",
-    repo_id="eminorhan/random_wikipedia",
-    repo_type="dataset",
-    token=True
-)
+ds_10M = select_items_to_target(ds, lens, "10M", target_length=1e7)
+ds_100M = select_items_to_target(ds, lens, "100M", target_length=1e8)

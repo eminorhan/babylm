@@ -104,9 +104,9 @@ def parse_args():
 
     args = parser.parse_args()
 
-    # Sanity check for file extensions
-    check_file_extensions(args.train_files)
-    check_file_extensions(args.val_files)
+    # # Sanity check for file extensions
+    # check_file_extensions(args.train_files)
+    # check_file_extensions(args.val_files)
 
     return args
 
@@ -147,13 +147,14 @@ def main():
     # 'text' is found. You can easily tweak this behavior (see below).
     #
     # In distributed training, 'load_dataset' function guarantee that only one local process can concurrently download the dataset.
-    data_files = {"train": args.train_files, "validation": args.val_files}
-    dataset_args = {}
-    extension = args.train_files[0].split(".")[-1]
-    if extension == "txt":
-        extension = "text"
-        dataset_args["keep_linebreaks"] = not args.no_keep_linebreaks
-    raw_datasets = load_dataset(extension, data_files=data_files, **dataset_args)
+    # data_files = {"train": args.train_files, "validation": args.val_files}
+    # dataset_args = {}
+    # extension = args.train_files[0].split(".")[-1]
+    # if extension == "txt":
+    #     extension = "text"
+    #     dataset_args["keep_linebreaks"] = not args.no_keep_linebreaks
+    # raw_datasets = load_dataset(extension, data_files=data_files, **dataset_args)
+    raw_datasets = load_dataset("eminorhan/random_wikipedia", "100M")
 
     # Load pretrained model and tokenizer
     # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently download model & vocab.
