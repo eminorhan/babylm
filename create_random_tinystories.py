@@ -4,7 +4,11 @@ from datasets import load_dataset, Dataset
 
 def load_preprocess_tinystories():
 
-    dataset = load_dataset("roneneldan/TinyStories", data_files={"train": "TinyStoriesV2-GPT4-train.txt", "validation": "TinyStoriesV2-GPT4-valid.txt"}, sample_by="paragraph")
+    dataset = load_dataset(
+        "roneneldan/TinyStories", 
+        data_files={"train": "TinyStoriesV2-GPT4-train.txt", "validation": "TinyStoriesV2-GPT4-valid.txt"}, 
+        sample_by="paragraph"
+        )
 
     split_txt_train, split_txt_validation = [], [] 
 
@@ -68,6 +72,17 @@ def random_subset_tinystories(ds, ds_val, lens, subset, target_length=1e7):
     print(f"Total number of words: {lens_shuffled_cumsum[n-1]}")
 
 
-ds_train, ds_validation, lens = load_preprocess_tinystories()
-random_subset_tinystories(ds_train, ds_validation, lens, "10M", target_length=1e7)
-random_subset_tinystories(ds_train, ds_validation, lens, "100M", target_length=1e8)
+if __name__ == '__main__':
+    
+    # full dataset
+    ds_train, ds_validation, lens = load_preprocess_tinystories()
+
+    # 10M subsets
+    random_subset_tinystories(ds_train, ds_validation, lens, "10M_1", target_length=1e7)
+    random_subset_tinystories(ds_train, ds_validation, lens, "10M_2", target_length=1e7)
+    random_subset_tinystories(ds_train, ds_validation, lens, "10M_3", target_length=1e7)
+
+    # 100M subsets
+    random_subset_tinystories(ds_train, ds_validation, lens, "100M_1", target_length=1e8)
+    random_subset_tinystories(ds_train, ds_validation, lens, "100M_2", target_length=1e8)
+    random_subset_tinystories(ds_train, ds_validation, lens, "100M_3", target_length=1e8)

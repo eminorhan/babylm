@@ -3,7 +3,7 @@ from datasets import load_dataset
 
 
 def strip_after_phrase(text):
-    # Iterate over each phrase and split the text
+    # iterate over each phrase and split the text
     for phrase in ["References", "See also", "External links", "Further reading", "Citations", "Notes"]:
         if phrase in text["text"]:
             text["text"] = text["text"].split(phrase)[0].strip()
@@ -42,7 +42,7 @@ def random_subset_wikipedia(ds, lens, subset, target_length=1e7):
     n = np.searchsorted(lens_shuffled_cumsum, target_length, side="left")
 
     train_indices = indices[:n]
-    val_indices = indices[n:(n+1000)]
+    val_indices = indices[n:(n+1000)]  # 1000 validation examples
 
     # select subset with given indices
     train_dataset = ds.select(train_indices)
@@ -56,6 +56,17 @@ def random_subset_wikipedia(ds, lens, subset, target_length=1e7):
     print(f"Total number of words: {lens_shuffled_cumsum[n-1]}")
 
 
-ds, lens = load_preprocess_wikipedia()
-random_subset_wikipedia(ds, lens, "10M", target_length=1e7)
-random_subset_wikipedia(ds, lens, "100M", target_length=1e8)
+if __name__ == '__main__':
+
+    # full dataset
+    ds, lens = load_preprocess_wikipedia()
+    
+    # 10M subsets
+    random_subset_wikipedia(ds, lens, "10M_1", target_length=1e7)
+    random_subset_wikipedia(ds, lens, "10M_2", target_length=1e7)
+    random_subset_wikipedia(ds, lens, "10M_3", target_length=1e7)
+
+    # 100M subsets
+    random_subset_wikipedia(ds, lens, "100M_1", target_length=1e8)
+    random_subset_wikipedia(ds, lens, "100M_2", target_length=1e8)
+    random_subset_wikipedia(ds, lens, "100M_3", target_length=1e8)        
