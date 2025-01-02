@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --gres=gpu:a100:1
+#SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=240GB
 #SBATCH --time=1:00:00
@@ -13,7 +13,7 @@ export HF_DATASETS_CACHE="/vast/eo41/huggingface"
 
 # root model directory
 MODEL_ROOT_DIR="/vast/eo41/babylm/models"
-SP="babylm_random_wikipedia_100M_gpt"
+SP="babylm_random_wikipedia_100M_1_gpt"
 
 accelerate launch --config_file accelerate_1gpu_config.yaml --num_cpu_threads_per_process 16 /scratch/eo41/babylm/train.py \
     --model_name_or_path "gpt2-large" \

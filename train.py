@@ -154,7 +154,7 @@ def main():
     #     extension = "text"
     #     dataset_args["keep_linebreaks"] = not args.no_keep_linebreaks
     # raw_datasets = load_dataset(extension, data_files=data_files, **dataset_args)
-    raw_datasets = load_dataset("eminorhan/random_wikipedia", "100M")
+    raw_datasets = load_dataset("eminorhan/random_wikipedia", "100M_1")
 
     # Load pretrained model and tokenizer
     # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently download model & vocab.
