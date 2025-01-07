@@ -60,6 +60,36 @@ MODEL_CONFIG_CLASSES = list(MODEL_MAPPING.keys())
 MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
 
+DATASETS = {
+    "babylm_10M": {
+        "train": ["data/train_10M/childes.txt", "data/train_10M/bnc_spoken.txt", "data/train_10M/gutenberg.txt", "data/train_10M/open_subtitles.txt", "data/train_10M/simple_wiki.txt", "data/train_10M/switchboard.txt"],
+        "validation": ["data/dev/childes.txt", "data/dev/bnc_spoken.txt", "data/dev/gutenberg.txt", "data/dev/open_subtitles.txt", "data/dev/simple_wiki.txt", "data/dev/switchboard.txt"]
+        }, 
+    "babylm_100M": {
+        "train": ["data/train_100M/childes.txt", "data/train_100M/bnc_spoken.txt", "data/train_100M/gutenberg.txt", "data/train_100M/open_subtitles.txt", "data/train_100M/simple_wiki.txt", "data/train_100M/switchboard.txt"],
+        "validation": ["data/dev/childes.txt", "data/dev/bnc_spoken.txt", "data/dev/gutenberg.txt", "data/dev/open_subtitles.txt", "data/dev/simple_wiki.txt", "data/dev/switchboard.txt"]
+        }, 
+    "wikipedia_10M_1": ["eminorhan/wikipedia", "10M_1"],
+    "wikipedia_10M_2": ["eminorhan/wikipedia", "10M_2"],
+    "wikipedia_10M_3": ["eminorhan/wikipedia", "10M_3"],
+    "wikipedia_100M_1": ["eminorhan/wikipedia", "100M_1"],
+    "wikipedia_100M_2": ["eminorhan/wikipedia", "100M_2"],
+    "wikipedia_100M_3": ["eminorhan/wikipedia", "100M_3"],
+    "gutenberg_10M_1": ["eminorhan/gutenberg_en_dec24", "10M_1"],
+    "gutenberg_10M_2": ["eminorhan/gutenberg_en_dec24", "10M_2"],
+    "gutenberg_10M_3": ["eminorhan/gutenberg_en_dec24", "10M_3"],
+    "gutenberg_100M_1": ["eminorhan/gutenberg_en_dec24", "100M_1"],
+    "gutenberg_100M_2": ["eminorhan/gutenberg_en_dec24", "100M_2"],
+    "gutenberg_100M_3": ["eminorhan/gutenberg_en_dec24", "100M_3"],
+    "tinystories_10M_1": ["eminorhan/tinystories", "10M_1"],
+    "tinystories_10M_2": ["eminorhan/tinystories", "10M_2"],
+    "tinystories_10M_3": ["eminorhan/tinystories", "10M_3"],
+    "tinystories_100M_1": ["eminorhan/tinystories", "100M_1"],
+    "tinystories_100M_2": ["eminorhan/tinystories", "100M_2"],
+    "tinystories_100M_3": ["eminorhan/tinystories", "100M_3"],
+}
+
+
 def check_file_extensions(file_list):
     # Extract the extension from the first file
     extension = file_list[0].split('.')[-1]
@@ -77,8 +107,7 @@ def check_file_extensions(file_list):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Finetune large language models on causal language modeling tasks")
-    parser.add_argument('--train_files', nargs='+', help="list of files containing the training data")
-    parser.add_argument('--val_files', nargs='+', help="list of files containing the validation data")
+    parser.add_argument("--dataset_name", type=str, help="dataset", choices=DATASETS.keys())
     parser.add_argument("--model_name_or_path", type=str, help="Path to pretrained model or model identifier from huggingface.co/models.", required=False)
     parser.add_argument("--config_name", type=str, default=None, help="Pretrained config name or path if not the same as model_name")
     parser.add_argument("--tokenizer_name", type=str, default=None, help="Tokenizer name")
@@ -88,7 +117,7 @@ def parse_args():
     parser.add_argument("--num_train_epochs", type=int, default=1, help="Total number of training epochs to perform.")
     parser.add_argument("--max_train_steps", type=int, default=None, help="Total number of training steps to perform. If provided, overrides num_train_epochs.")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of updates steps to accumulate before performing a backward/update pass.")
-    parser.add_argument("--lr_scheduler_type", type=SchedulerType, default="cosine", help="The scheduler type to use.", choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"])
+    parser.add_argument("--lr_scheduler_type", type=SchedulerType, default="linear", help="The scheduler type to use.", choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"])
     parser.add_argument("--num_warmup_steps", type=int, default=100, help="Number of steps for the warmup in the lr scheduler.")
     parser.add_argument("--output_dir", type=str, default=None, help="Where to store the final model.")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
@@ -139,22 +168,14 @@ def main():
             os.makedirs(args.output_dir, exist_ok=True)
     accelerator.wait_for_everyone()
 
-    # Get the datasets: you can either provide your own CSV/JSON/TXT training and evaluation files (see below)
-    # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
-    # (the dataset will be downloaded automatically from the datasets Hub).
-    #
-    # For CSV/JSON files, this script will use the column called 'text' or the first column if no column called
-    # 'text' is found. You can easily tweak this behavior (see below).
-    #
     # In distributed training, 'load_dataset' function guarantee that only one local process can concurrently download the dataset.
-    # data_files = {"train": args.train_files, "validation": args.val_files}
-    # dataset_args = {}
-    # extension = args.train_files[0].split(".")[-1]
-    # if extension == "txt":
-    #     extension = "text"
-    #     dataset_args["keep_linebreaks"] = not args.no_keep_linebreaks
-    # raw_datasets = load_dataset(extension, data_files=data_files, **dataset_args)
-    raw_datasets = load_dataset("eminorhan/random_wikipedia", "100M_1")
+    if args.dataset_name.startswith("babylm"):
+        data_files = DATASETS[args.dataset_name]
+        dataset_args = {"keep_linebreaks": not args.no_keep_linebreaks}
+        raw_datasets = load_dataset("text", data_files=data_files, **dataset_args)
+    else:
+        repo_info = DATASETS[args.dataset_name]
+        raw_datasets = load_dataset(repo_info[0], repo_info[1])
 
     # Load pretrained model and tokenizer
     # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently download model & vocab.
@@ -177,10 +198,10 @@ def main():
 
     if args.model_name_or_path and args.use_pretrained_weights:
         logger.info("Loading pretrained weights")
-        model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, from_tf=bool(".ckpt" in args.model_name_or_path), config=config, token=True)
+        model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, torch_dtype=torch.bfloat16, from_tf=bool(".ckpt" in args.model_name_or_path), config=config, token=True)
     else:
         logger.info("Training new model from scratch")
-        model = AutoModelForCausalLM.from_config(config)
+        model = AutoModelForCausalLM.from_config(config, torch_dtype=torch.bfloat16)  # weights in bf16
 
     model.resize_token_embeddings(new_num_tokens=len(tokenizer), pad_to_multiple_of=128)
     logger.info(f"Tokenizer len: {len(tokenizer)}")
@@ -351,6 +372,9 @@ def main():
 
             with accelerator.accumulate(model):
                 outputs = model(**batch)
+                # logger.info(f"outputs dtype: {outputs.hidden_states[-2].dtype}")
+                # logger.info(f"logits dtype: {outputs.logits.dtype}")
+                # logger.info(f"loss dtype: {outputs.loss.dtype}")
                 loss = outputs.loss
                 # keep track of the train loss
                 train_loss += loss.detach().float()

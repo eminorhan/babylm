@@ -11,4 +11,7 @@ num_processes: 1
 rdzv_backend: static
 same_network: true
 use_cpu: false
-mixed_precision: 'no'
+mixed_precision: fp8
+fp8_config:
+    backend: MSAMP
+    opt_level: O1

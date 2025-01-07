@@ -17,18 +17,18 @@ SP="babylm_10M_gpt"
 
 accelerate launch --config_file accelerate_1gpu_config.yaml --num_cpu_threads_per_process 16 /scratch/eo41/babylm/train.py \
     --model_name_or_path "gpt2-large" \
-    --train_files "data/text_data/train_10M/childes.txt" \
-                  "data/text_data/train_10M/bnc_spoken.txt" \
-                  "data/text_data/train_10M/gutenberg.txt" \
-                  "data/text_data/train_10M/open_subtitles.txt" \
-                  "data/text_data/train_10M/simple_wiki.txt" \
-                  "data/text_data/train_10M/switchboard.txt" \
-    --val_files "data/text_data/dev/childes.txt" \
-                "data/text_data/dev/bnc_spoken.txt" \
-                "data/text_data/dev/gutenberg.txt" \
-                "data/text_data/dev/open_subtitles.txt" \
-                "data/text_data/dev/simple_wiki.txt" \
-                "data/text_data/dev/switchboard.txt" \
+    --train_files "data/train_10M/childes.txt" \
+                  "data/train_10M/bnc_spoken.txt" \
+                  "data/train_10M/gutenberg.txt" \
+                  "data/train_10M/open_subtitles.txt" \
+                  "data/train_10M/simple_wiki.txt" \
+                  "data/train_10M/switchboard.txt" \
+    --val_files "data/dev/childes.txt" \
+                "data/dev/bnc_spoken.txt" \
+                "data/dev/gutenberg.txt" \
+                "data/dev/open_subtitles.txt" \
+                "data/dev/simple_wiki.txt" \
+                "data/dev/switchboard.txt" \
     --per_device_train_batch_size 8 \
     --gradient_accumulation_steps 8 \
     --learning_rate 0.0001 \
