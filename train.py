@@ -87,6 +87,12 @@ DATASETS = {
     "tinystories_100M_1": ["eminorhan/tinystories", "100M_1"],
     "tinystories_100M_2": ["eminorhan/tinystories", "100M_2"],
     "tinystories_100M_3": ["eminorhan/tinystories", "100M_3"],
+    "pythonedu_10M_1": ["eminorhan/python-edu", "10M_1"],
+    "pythonedu_10M_2": ["eminorhan/python-edu", "10M_2"],
+    "pythonedu_10M_3": ["eminorhan/python-edu", "10M_3"],
+    "pythonedu_100M_1": ["eminorhan/python-edu", "100M_1"],
+    "pythonedu_100M_2": ["eminorhan/python-edu", "100M_2"],
+    "pythonedu_100M_3": ["eminorhan/python-edu", "100M_3"],
 }
 
 
