@@ -1,9 +1,9 @@
 #!/bin/bash
 
-#SBATCH --gres=gpu:a100:1
+#SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=62GB
-#SBATCH --time=00:55:00
+#SBATCH --time=00:15:00
 #SBATCH --job-name=train_babylm_random_wikipedia_100M_gpt
 #SBATCH --output=train_babylm_random_wikipedia_100M_gpt_%A_%a.out
 #SBATCH --array=0
@@ -17,6 +17,7 @@ SP="babylm_random_wikipedia_10M_1_gpt"
 
 accelerate launch --config_file accelerate_1gpu_config.yaml --num_cpu_threads_per_process 16 /scratch/eo41/babylm/train.py \
     --model_name_or_path "meta-llama/Llama-3.2-1B" \
+    --dataset_name "wikipedia_100M_1" \
     --per_device_train_batch_size 16 \
     --gradient_accumulation_steps 4 \
     --learning_rate 0.0003 \

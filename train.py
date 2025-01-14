@@ -133,10 +133,6 @@ def parse_args():
 
     args = parser.parse_args()
 
-    # # Sanity check for file extensions
-    # check_file_extensions(args.train_files)
-    # check_file_extensions(args.val_files)
-
     return args
 
 
@@ -171,6 +167,11 @@ def main():
     # In distributed training, 'load_dataset' function guarantee that only one local process can concurrently download the dataset.
     if args.dataset_name.startswith("babylm"):
         data_files = DATASETS[args.dataset_name]
+
+        # Sanity check for file extensions
+        check_file_extensions(data_files["train"])
+        check_file_extensions(data_files["validation"])
+
         dataset_args = {"keep_linebreaks": not args.no_keep_linebreaks}
         raw_datasets = load_dataset("text", data_files=data_files, **dataset_args)
     else:
@@ -372,6 +373,7 @@ def main():
 
             with accelerator.accumulate(model):
                 outputs = model(**batch)
+                # dtype checks:
                 # logger.info(f"outputs dtype: {outputs.hidden_states[-2].dtype}")
                 # logger.info(f"logits dtype: {outputs.logits.dtype}")
                 # logger.info(f"loss dtype: {outputs.loss.dtype}")
