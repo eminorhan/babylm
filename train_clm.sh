@@ -3,10 +3,10 @@
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=62GB
-#SBATCH --time=2:00:00
-#SBATCH --job-name=train
-#SBATCH --output=train_%A_%a.out
-#SBATCH --array=0-12
+#SBATCH --time=24:00:00
+#SBATCH --job-name=train_clm
+#SBATCH --output=train_clm_%A_%a.out
+#SBATCH --array=13-25
 
 export HF_HOME="/vast/eo41/huggingface"
 export HF_DATASETS_CACHE="/vast/eo41/huggingface"
@@ -31,7 +31,7 @@ DATASET_NAMES=(
 # get dataset name for current array index
 DATASET_NAME=${DATASET_NAMES[$SLURM_ARRAY_TASK_ID]}
 
-accelerate launch --config_file accelerate_1gpu_config.yaml --num_cpu_threads_per_process 16 /scratch/eo41/babylm/train.py \
+accelerate launch --config_file accelerate_1gpu_config.yaml --num_cpu_threads_per_process 16 /scratch/eo41/babylm/train_clm.py \
     --model_name_or_path "meta-llama/Llama-3.2-1B" \
     --dataset_name "$DATASET_NAME" \
     --per_device_train_batch_size 8 \
@@ -40,8 +40,8 @@ accelerate launch --config_file accelerate_1gpu_config.yaml --num_cpu_threads_pe
     --output_dir "${MODEL_ROOT_DIR}/${DATASET_NAME}" \
     --save_prefix ${DATASET_NAME} \
     --block_size 1024 \
-    --num_train_epochs 15 \
-    --checkpointing_steps 100 \
+    --num_train_epochs 16 \
+    --checkpointing_steps 1000 \
     --overwrite_cache
 
 echo "Done"
