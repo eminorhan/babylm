@@ -14,11 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Fine-tuning the library models for causal language modeling (GPT, GPT-2, CTRL, ...)
+Fine-tuning the library models for masked language modeling (BERT, ALBERT, RoBERTa...)
 on a text file or a dataset without using HuggingFace Trainer.
+
 Here is the full list of checkpoints on the hub that can be fine-tuned by this script:
-https://huggingface.co/models?filter=text-generation
+https://huggingface.co/models?filter=fill-mask
 """
+# You can also adapt this script on your own mlm task. Pointers for this are left as comments.
 
 import argparse
 import logging
@@ -29,32 +31,29 @@ from itertools import chain
 
 import datasets
 import torch
+from accelerate import Accelerator, DistributedType
+from accelerate.logging import get_logger
+from accelerate.utils import set_seed
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 import transformers
-from accelerate import Accelerator
-from accelerate.logging import get_logger
-from accelerate.utils import set_seed
 from transformers import (
-    CONFIG_MAPPING,
     MODEL_MAPPING,
     AutoConfig,
-    AutoModelForCausalLM,
+    AutoModelForMaskedLM,
     AutoTokenizer,
-    PreTrainedTokenizerFast,
+    DataCollatorForLanguageModeling,
     SchedulerType,
-    default_data_collator,
-    get_scheduler
+    get_scheduler,
 )
+from transformers.utils import send_example_telemetry
 from transformers.utils.versions import require_version
-from datetime import timedelta
-from accelerate import InitProcessGroupKwargs
 
 logger = get_logger(__name__)
 
-require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/language-modeling/requirements.txt")
+require_version("datasets>=2.14.0", "To fix: pip install -r examples/pytorch/language-modeling/requirements.txt")
 
 MODEL_CONFIG_CLASSES = list(MODEL_MAPPING.keys())
 MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
@@ -112,15 +111,14 @@ def check_file_extensions(file_list):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Finetune large language models on causal language modeling tasks")
+    parser = argparse.ArgumentParser(description="Finetune a transformers model on a Masked Language Modeling task")
     parser.add_argument("--dataset_name", type=str, help="dataset", choices=DATASETS.keys())
     parser.add_argument("--model_name_or_path", type=str, help="Path to pretrained model or model identifier from huggingface.co/models.", required=False)
-    parser.add_argument("--config_name", type=str, default=None, help="Pretrained config name or path if not the same as model_name")
-    parser.add_argument("--tokenizer_name", type=str, default=None, help="Tokenizer name")
+    parser.add_argument("--tokenizer_name", type=str, default=None, help="Pretrained tokenizer name or path if not the same as model_name")
     parser.add_argument("--per_device_train_batch_size", type=int, default=8, help="Batch size (per device) for the training dataloader.")
-    parser.add_argument("--learning_rate", type=float, default=0.0001, help="Initial learning rate (after the potential warmup period) to use.")
+    parser.add_argument("--learning_rate", type=float, default=3e-4, help="Initial learning rate (after the potential warmup period) to use.")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay to use.")
-    parser.add_argument("--num_train_epochs", type=int, default=1, help="Total number of training epochs to perform.")
+    parser.add_argument("--num_train_epochs", type=int, default=3, help="Total number of training epochs to perform.")
     parser.add_argument("--max_train_steps", type=int, default=None, help="Total number of training steps to perform. If provided, overrides num_train_epochs.")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--lr_scheduler_type", type=SchedulerType, default="linear", help="The scheduler type to use.", choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"])
@@ -128,29 +126,51 @@ def parse_args():
     parser.add_argument("--output_dir", type=str, default=None, help="Where to store the final model.")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument("--model_type", type=str, default=None, help="Model type to use if training from scratch.", choices=MODEL_TYPES)
-    parser.add_argument("--block_size", type=int, default=None, help="The training dataset will be truncated to blocks of this size (after tokenization) for training.")
+    parser.add_argument("--max_seq_length", type=int, default=None, help="The maximum total input sequence length after tokenization. Sequences longer than this will be truncated.")
     parser.add_argument("--preprocessing_num_workers", type=int, default=None, help="The number of processes to use for the preprocessing.")
     parser.add_argument("--overwrite_cache", action="store_true", help="Overwrite the cached training and evaluation sets")
-    parser.add_argument("--no_keep_linebreaks", action="store_true", help="Do not keep line breaks when using TXT files.")
+    parser.add_argument("--mlm_probability", type=float, default=0.3, help="Ratio of tokens to mask for masked language modeling loss")
     parser.add_argument("--checkpointing_steps", type=str, default=None, help="Whether the various states should be saved at the end of every n steps, or 'epoch' for each epoch.")
     parser.add_argument("--resume_from_checkpoint", type=str, default=None, help="If the training should continue from a checkpoint folder.")
     parser.add_argument("--use_pretrained_weights", action="store_true", help="Whether to use pretrained weights.")
-
     args = parser.parse_args()
+
+    # Sanity checks
+    if args.dataset_name is None and args.train_file is None and args.validation_file is None:
+        raise ValueError("Need either a dataset name or a training/validation file.")
+    else:
+        if args.train_file is not None:
+            extension = args.train_file.split(".")[-1]
+            if extension not in ["csv", "json", "txt"]:
+                raise ValueError("`train_file` should be a csv, json or txt file.")
+        if args.validation_file is not None:
+            extension = args.validation_file.split(".")[-1]
+            if extension not in ["csv", "json", "txt"]:
+                raise ValueError("`validation_file` should be a csv, json or txt file.")
 
     return args
 
 
 def main():
     args = parse_args()
-    print(args)
 
-    # Initialize the accelerator
-    process_group_kwargs = InitProcessGroupKwargs(timeout=timedelta(seconds=3600))  # 1 hour
-    accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps, kwargs_handlers=[process_group_kwargs])
-    
+    # Sending telemetry. Tracking the example usage helps us better allocate resources to maintain them. The
+    # information sent is the one passed as arguments along with your Python/PyTorch versions.
+    send_example_telemetry("run_mlm_no_trainer", args)
+
+    # Initialize the accelerator. We will let the accelerator handle device placement for us in this example.
+    # If we're using tracking, we also need to initialize it here and it will by default pick up all supported trackers
+    # in the environment
+    accelerator_log_kwargs = {}
+
+    accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps, **accelerator_log_kwargs)
+
     # Make one log on every process with the configuration for debugging.
-    logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.INFO)
+    logging.basicConfig(
+        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        datefmt="%m/%d/%Y %H:%M:%S",
+        level=logging.INFO,
+    )
     logger.info(accelerator.state, main_process_only=False)
     if accelerator.is_local_main_process:
         datasets.utils.logging.set_verbosity_warning()
@@ -165,11 +185,10 @@ def main():
 
     # Handle the repository creation
     if accelerator.is_main_process:
-        if args.output_dir is not None:
-            os.makedirs(args.output_dir, exist_ok=True)
+        os.makedirs(args.output_dir, exist_ok=True)
     accelerator.wait_for_everyone()
 
-    # In distributed training, 'load_dataset' function guarantee that only one local process can concurrently download the dataset.
+    # load data
     if args.dataset_name.startswith("babylm"):
         data_files = DATASETS[args.dataset_name]
 
@@ -183,132 +202,152 @@ def main():
         repo_info = DATASETS[args.dataset_name]
         raw_datasets = load_dataset(repo_info[0], repo_info[1])
 
-    # Load pretrained model and tokenizer
-    # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently download model & vocab.
-    if args.config_name:
-        config = AutoConfig.from_pretrained(args.config_name, token=True)
-    elif args.model_name_or_path:
-        config = AutoConfig.from_pretrained(args.model_name_or_path, token=True)
-    else:
-        config = CONFIG_MAPPING[args.model_type]()
-        logger.warning("You are instantiating a new config instance from scratch.")
+    # load config, model, tokenizer, etc.
+    # .from_pretrained methods guarantee that only one local process can concurrently download model & vocabulary in distributed setting
+    config = AutoConfig.from_pretrained(args.model_name_or_path, trust_remote_code=True, token=True)
 
     if args.tokenizer_name:
-        tokenizer = PreTrainedTokenizerFast(tokenizer_file=args.tokenizer_name, unk_token="[UNK]", pad_token="[PAD]", cls_token="[CLS]", sep_token="[SEP]", mask_token="[MASK]")
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=True, trust_remote_code=True)
     elif args.model_name_or_path:
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=True, model_max_length=1024, token=True)  # TODO: pass this more beautifully
-        if args.model_name_or_path.startswith("meta-llama") or args.model_name_or_path.startswith("gpt2") or args.model_name_or_path.startswith("EleutherAI"):
-            tokenizer.pad_token = tokenizer.eos_token
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=True, trust_remote_code=True)
     else:
         raise ValueError("You are instantiating a new tokenizer from scratch. This is not supported by this script. You can do it from another script, save it, and load it from here, using --tokenizer_name.")
 
     if args.model_name_or_path and args.use_pretrained_weights:
         logger.info("Loading pretrained weights")
-        model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path, torch_dtype=torch.bfloat16, from_tf=bool(".ckpt" in args.model_name_or_path), config=config, token=True)
+        model = AutoModelForMaskedLM.from_pretrained(args.model_name_or_path, torch_dtype=torch.bfloat16, from_tf=bool(".ckpt" in args.model_name_or_path), config=config, trust_remote_code=True)
     else:
         logger.info("Training new model from scratch")
-        model = AutoModelForCausalLM.from_config(config, torch_dtype=torch.bfloat16)  # weights in bf16
+        model = AutoModelForMaskedLM.from_config(config, torch_dtype=torch.bfloat16, trust_remote_code=True)
 
-    model.resize_token_embeddings(new_num_tokens=len(tokenizer), pad_to_multiple_of=128)
-    logger.info(f"Tokenizer len: {len(tokenizer)}")
-    logger.info(f"Pad token id: {tokenizer.pad_token_id}")
+    # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
+    # on a small vocab and want a smaller embedding size, remove this test.
+    embedding_size = model.get_input_embeddings().weight.shape[0]
+    if len(tokenizer) > embedding_size:
+        model.resize_token_embeddings(len(tokenizer))
 
-    # Preprocessing the datasets. First we tokenize all the texts.
+    # Preprocessing the datasets.
+    # First we tokenize all the texts.
     column_names = raw_datasets["train"].column_names
     text_column_name = "text" if "text" in column_names else column_names[0]
 
-    if args.block_size is None:
-        block_size = tokenizer.model_max_length
-        if block_size > 1024:
-            logger.warning(f"The tokenizer picked seems to have a very large `model_max_length` ({tokenizer.model_max_length}). Picking 1024 instead. You can change that default value by passing --block_size xxx.")
-            block_size = 1024
+    if args.max_seq_length is None:
+        max_seq_length = tokenizer.model_max_length
+        if max_seq_length > 1024:
+            logger.warning("The chosen tokenizer supports a `model_max_length` that is longer than the default `block_size` value of 1024. If you would like to use a longer `block_size` up to `tokenizer.model_max_length` you can override this default with `--block_size xxx`.")
+            max_seq_length = 1024
     else:
-        block_size = args.block_size
-        if args.block_size > tokenizer.model_max_length:
-            logger.warning(f"The block_size passed ({args.block_size}) is larger than the maximum length for the model ({tokenizer.model_max_length}). Using block_size={tokenizer.model_max_length}.")
-            block_size = tokenizer.model_max_length
+        if args.max_seq_length > tokenizer.model_max_length:
+            logger.warning(f"The max_seq_length passed ({args.max_seq_length}) is larger than the maximum length for the model ({tokenizer.model_max_length}). Using max_seq_length={tokenizer.model_max_length}.")
+        max_seq_length = min(args.max_seq_length, tokenizer.model_max_length)
 
-    logger.info(f"Block size: {block_size}")
+    logger.info(f"Max seq length: {max_seq_length}")
 
-    def tokenize_function_original(examples):
-        return tokenizer(examples[text_column_name])
+    # we tokenize every text, then concatenate them together before splitting them in smaller parts.
+    # We use `return_special_tokens_mask=True` because DataCollatorForLanguageModeling (see below) is more
+    # efficient when it receives the `special_tokens_mask`.
+    def tokenize_function(examples):
+        return tokenizer(examples[text_column_name], return_special_tokens_mask=True)
 
     with accelerator.main_process_first():
         tokenized_datasets = raw_datasets.map(
-            tokenize_function_original,
+            tokenize_function,
             batched=True,
             num_proc=args.preprocessing_num_workers,
             remove_columns=column_names,
             load_from_cache_file=not args.overwrite_cache,
-            desc="Running tokenizer on dataset",
+            desc="Running tokenizer on every text in dataset",
         )
 
-    def preprocess_function_original(examples):
-        # Concatenate all texts (aka sequence packing).
+    # Main data processing function that will concatenate all texts from our dataset and generate chunks of
+    # max_seq_length.
+    def group_texts(examples):
+        # Concatenate all texts.
         concatenated_examples = {k: list(chain(*examples[k])) for k in examples.keys()}
         total_length = len(concatenated_examples[list(examples.keys())[0]])
-        # We drop the small remainder, we could add padding if the model supported it instead of this drop, you can customize this part to your needs
-        total_length = (total_length // block_size) * block_size
+        # We drop the small remainder, and if the total_length < max_seq_length  we exclude this batch and return an empty dict.
+        # We could add padding if the model supported it instead of this drop, you can customize this part to your needs.
+        total_length = (total_length // max_seq_length) * max_seq_length
         # Split by chunks of max_len.
-        result = {k: [t[i : i + block_size] for i in range(0, total_length, block_size)] for k, t in concatenated_examples.items()}
-        result["labels"] = result["input_ids"].copy()
+        result = {k: [t[i : i + max_seq_length] for i in range(0, total_length, max_seq_length)] for k, t in concatenated_examples.items()}
         return result
-    
+
+    # Note that with `batched=True`, this map processes 1,000 texts together, so group_texts throws away a
+    # remainder for each of those groups of 1,000 texts. You can adjust that batch_size here but a higher value
+    # might be slower to preprocess.
+    #
+    # To speed up this part, we use multiprocessing. See the documentation of the map method for more information:
+    # https://huggingface.co/docs/datasets/process#map
+
     with accelerator.main_process_first():
-        lm_datasets = tokenized_datasets.map(
-            preprocess_function_original,
+        tokenized_datasets = tokenized_datasets.map(
+            group_texts,
             batched=True,
             num_proc=args.preprocessing_num_workers,
             load_from_cache_file=not args.overwrite_cache,
-            desc=f"Grouping text.",
+            desc=f"Grouping texts in chunks of {max_seq_length}",
         )
 
-    # dataset & dataloader creation
-    train_dataset = lm_datasets["train"]
-    val_dataset = lm_datasets["validation"]
-    train_dataloader = DataLoader(train_dataset, shuffle=True, collate_fn=default_data_collator, batch_size=args.per_device_train_batch_size)
-    val_dataloader = DataLoader(val_dataset, shuffle=False, collate_fn=default_data_collator, batch_size=args.per_device_train_batch_size)
+    train_dataset = tokenized_datasets["train"]
+    eval_dataset = tokenized_datasets["validation"]
 
-    # Log a few random samples from the training set:
-    for index in random.sample(range(len(train_dataset)), 3):
-        logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
-        logger.info(f"Sample {index} of the training set (decoded): {tokenizer.decode(train_dataset[index]['input_ids'], skip_special_tokens=True)}.")
+    # Conditional for small test subsets
+    if len(train_dataset) > 3:
+        # Log a few random samples from the training set:
+        for index in random.sample(range(len(train_dataset)), 3):
+            logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
 
-    logger.info(f"Model = {model}")
-    logger.info(f"Number of params (M): {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1.e6}")
-    model = accelerator.prepare(model)
+    # Data collator
+    # This one will take care of randomly masking the tokens.
+    data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=args.mlm_probability)
 
-    # Optimizer: split weights in two groups, one with weight decay and the other not.
-    no_decay = ["bias", "layer_norm.weight"]
+    # DataLoaders creation:
+    train_dataloader = DataLoader(train_dataset, shuffle=True, collate_fn=data_collator, batch_size=args.per_device_train_batch_size)
+    eval_dataloader = DataLoader(eval_dataset, collate_fn=data_collator, batch_size=args.per_device_train_batch_size)  # same per device batch size as eval
+
+    # Optimizer
+    # Split weights in two groups, one with weight decay and the other not.
+    no_decay = ["bias", "LayerNorm.weight"]
     optimizer_grouped_parameters = [
-        {"params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)], "weight_decay": args.weight_decay},
-        {"params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
+        {
+            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+            "weight_decay": args.weight_decay,
+        },
+        {
+            "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
+            "weight_decay": 0.0,
+        },
     ]
     optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=args.learning_rate)
-    
-    # Math around the number of training steps.
+
+
+    # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     if args.max_train_steps is None:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
         overrode_max_train_steps = True
 
-    # Prepare lr scheduler
     lr_scheduler = get_scheduler(
         name=args.lr_scheduler_type,
         optimizer=optimizer,
         num_warmup_steps=args.num_warmup_steps * accelerator.num_processes,
-        num_training_steps=args.max_train_steps if overrode_max_train_steps else args.max_train_steps * accelerator.num_processes
+        num_training_steps=args.max_train_steps
+        if overrode_max_train_steps
+        else args.max_train_steps * accelerator.num_processes,
     )
 
     # Prepare everything with our `accelerator`.
-    optimizer, train_dataloader, val_dataloader, lr_scheduler = accelerator.prepare(optimizer, train_dataloader, val_dataloader, lr_scheduler)
+    model, optimizer, train_dataloader, eval_dataloader, lr_scheduler = accelerator.prepare(model, optimizer, train_dataloader, eval_dataloader, lr_scheduler)
+
+    # On TPU, the tie weights in our model have been disconnected, so we need to restore the ties.
+    if accelerator.distributed_type == DistributedType.TPU:
+        model.tie_weights()
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     if overrode_max_train_steps:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
-
     # Afterwards we recalculate our number of training epochs
     args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
 
@@ -319,7 +358,7 @@ def main():
 
     # Train!
     total_batch_size = args.per_device_train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
-    
+
     logger.info("***** Running training *****")
     logger.info(f"  Num examples = {len(train_dataset)}")
     logger.info(f"  Num Epochs = {args.num_train_epochs}")
@@ -327,7 +366,6 @@ def main():
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
-    
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process)
     completed_steps = 0
@@ -336,30 +374,34 @@ def main():
     # Potentially load in the weights and states from a previous save
     if args.resume_from_checkpoint:
         if args.resume_from_checkpoint is not None or args.resume_from_checkpoint != "":
-            accelerator.print(f"Resumed from checkpoint: {args.resume_from_checkpoint}")
-            accelerator.load_state(args.resume_from_checkpoint)
+            checkpoint_path = args.resume_from_checkpoint
             path = os.path.basename(args.resume_from_checkpoint)
         else:
             # Get the most recent checkpoint
             dirs = [f.name for f in os.scandir(os.getcwd()) if f.is_dir()]
             dirs.sort(key=os.path.getctime)
             path = dirs[-1]  # Sorts folders by date modified, most recent checkpoint is the last
-            
+            checkpoint_path = path
+            path = os.path.basename(checkpoint_path)
+
+        accelerator.print(f"Resumed from checkpoint: {checkpoint_path}")
+        accelerator.load_state(checkpoint_path)
         # Extract `epoch_{i}` or `step_{i}`
         training_difference = os.path.splitext(path)[0]
 
         if "epoch" in training_difference:
             starting_epoch = int(training_difference.replace("epoch_", "")) + 1
             resume_step = None
+            completed_steps = starting_epoch * num_update_steps_per_epoch
         else:
             # need to multiply `gradient_accumulation_steps` to reflect real steps
             resume_step = int(training_difference.replace("step_", "")) * args.gradient_accumulation_steps
             starting_epoch = resume_step // len(train_dataloader)
+            completed_steps = resume_step // args.gradient_accumulation_steps
             resume_step -= starting_epoch * len(train_dataloader)
 
     # update the progress_bar if load from checkpoint
-    progress_bar.update(starting_epoch * num_update_steps_per_epoch)
-    completed_steps = starting_epoch * num_update_steps_per_epoch
+    progress_bar.update(completed_steps)
 
     # initialize loss counters
     train_loss = 0
@@ -367,21 +409,14 @@ def main():
 
     for epoch in range(starting_epoch, args.num_train_epochs):
         model.train()
-        for step, batch in enumerate(train_dataloader):
-            # We need to skip steps until we reach the resumed step
-            if args.resume_from_checkpoint and epoch == starting_epoch:
-                if resume_step is not None and step < resume_step:
-                    if step % args.gradient_accumulation_steps == 0:
-                        progress_bar.update(1)
-                        completed_steps += 1
-                    continue
-
+        if args.resume_from_checkpoint and epoch == starting_epoch and resume_step is not None:
+            # We skip the first `n` batches in the dataloader when resuming from a checkpoint
+            active_dataloader = accelerator.skip_first_batches(train_dataloader, resume_step)
+        else:
+            active_dataloader = train_dataloader
+        for step, batch in enumerate(active_dataloader):
             with accelerator.accumulate(model):
                 outputs = model(**batch)
-                # dtype checks:
-                # logger.info(f"outputs dtype: {outputs.hidden_states[-2].dtype}")
-                # logger.info(f"logits dtype: {outputs.logits.dtype}")
-                # logger.info(f"loss dtype: {outputs.loss.dtype}")
                 loss = outputs.loss
                 # keep track of the train loss
                 train_loss += loss.detach().float()
@@ -397,7 +432,6 @@ def main():
                 completed_steps += 1
 
             if isinstance(checkpointing_steps, int):
-                # the last clause makes sure checkpointing is done once only with gradient accumulation
                 if completed_steps % checkpointing_steps == 0 and completed_steps != 0 and step % args.gradient_accumulation_steps == 0:
                     output_dir = f"step_{completed_steps}"
                     if args.output_dir is not None:
@@ -416,7 +450,7 @@ def main():
 
                     # save val losses 
                     model.eval()
-                    for step, batch in enumerate(val_dataloader):
+                    for step, batch in enumerate(eval_dataloader):
                         with torch.no_grad():
                             outputs = model(**batch)
                             loss = outputs.loss
@@ -424,11 +458,12 @@ def main():
                             val_loss += loss.detach().float()
 
                     # log val & re-initialize
-                    logger.info(f"Mean val loss: {val_loss.item() / len(val_dataloader)}")
+                    logger.info(f"Mean val loss: {val_loss.item() / len(eval_dataloader)}")
                     val_loss = 0
 
             if completed_steps >= args.max_train_steps:
                 break
+
 
 if __name__ == "__main__":
     main()
