@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --gres=gpu:h100:1
+#SBATCH --gres=gpu:a100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=62GB
 #SBATCH --time=1:00:00
