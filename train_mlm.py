@@ -116,12 +116,12 @@ def parse_args():
     parser.add_argument("--model_name_or_path", type=str, help="Path to pretrained model or model identifier from huggingface.co/models.", required=False)
     parser.add_argument("--per_device_train_batch_size", type=int, default=8, help="Batch size (per device) for the training dataloader.")
     parser.add_argument("--learning_rate", type=float, default=3e-4, help="Initial learning rate (after the potential warmup period) to use.")
-    parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay to use.")
+    parser.add_argument("--weight_decay", type=float, default=0.01, help="Weight decay to use.")
     parser.add_argument("--num_train_epochs", type=int, default=3, help="Total number of training epochs to perform.")
     parser.add_argument("--max_train_steps", type=int, default=None, help="Total number of training steps to perform. If provided, overrides num_train_epochs.")
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of updates steps to accumulate before performing a backward/update pass.")
     parser.add_argument("--lr_scheduler_type", type=SchedulerType, default="linear", help="The scheduler type to use.", choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"])
-    parser.add_argument("--num_warmup_steps", type=int, default=100, help="Number of steps for the warmup in the lr scheduler.")
+    parser.add_argument("--num_warmup_steps", type=int, default=10000, help="Number of steps for the warmup in the lr scheduler.")
     parser.add_argument("--output_dir", type=str, default=None, help="Where to store the final model.")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument("--model_type", type=str, default=None, help="Model type to use if training from scratch.", choices=MODEL_TYPES)
@@ -129,7 +129,7 @@ def parse_args():
     parser.add_argument("--preprocessing_num_workers", type=int, default=None, help="The number of processes to use for the preprocessing.")
     parser.add_argument("--overwrite_cache", action="store_true", help="Overwrite the cached training and evaluation sets")
     parser.add_argument("--no_keep_linebreaks", action="store_true", help="Do not keep line breaks when using TXT files.")
-    parser.add_argument("--mlm_probability", type=float, default=0.15, help="Ratio of tokens to mask for masked language modeling loss")
+    parser.add_argument("--mlm_probability", type=float, default=0.3, help="Ratio of tokens to mask for masked language modeling loss")
     parser.add_argument("--checkpointing_steps", type=str, default=None, help="Whether the various states should be saved at the end of every n steps, or 'epoch' for each epoch.")
     parser.add_argument("--resume_from_checkpoint", type=str, default=None, help="If the training should continue from a checkpoint folder.")
     parser.add_argument("--use_pretrained_weights", action="store_true", help="Whether to use pretrained weights.")
@@ -145,9 +145,8 @@ def main():
     # information sent is the one passed as arguments along with your Python/PyTorch versions.
     send_example_telemetry("run_mlm_no_trainer", args)
 
-    # Initialize the accelerator. We will let the accelerator handle device placement for us in this example.
-    # If we're using tracking, we also need to initialize it here and it will by default pick up all supported trackers
-    # in the environment
+    # Initialize the accelerator. We will let the accelerator handle device placement for us in this example. If we're using tracking, 
+    # we also need to initialize it here and it will by default pick up all supported trackers in the environment
     accelerator_log_kwargs = {}
 
     accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps, **accelerator_log_kwargs)
@@ -190,7 +189,7 @@ def main():
         raw_datasets = load_dataset(repo_info[0], repo_info[1])
 
     # load config, model, tokenizer, etc.
-    config = AutoConfig.from_pretrained(args.model_name_or_path, trust_remote_code=True, token=True)
+    config = AutoConfig.from_pretrained(args.model_name_or_path, trust_remote_code=True)
     tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=True, trust_remote_code=True)
 
     if args.model_name_or_path and args.use_pretrained_weights:
@@ -238,8 +237,7 @@ def main():
             desc="Running tokenizer on every text in dataset",
         )
 
-    # Main data processing function that will concatenate all texts from our dataset and generate chunks of
-    # max_seq_length.
+    # Main data processing function that will concatenate all texts from our dataset and generate chunks of max_seq_length.
     def group_texts(examples):
         # Concatenate all texts.
         concatenated_examples = {k: list(chain(*examples[k])) for k in examples.keys()}
@@ -276,16 +274,14 @@ def main():
         for index in random.sample(range(len(train_dataset)), 3):
             logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
 
-    # Data collator
-    # This one will take care of randomly masking the tokens.
+    # data_collator will take care of randomly masking the tokens.
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=args.mlm_probability)
 
-    # DataLoaders creation:
+    # create dataloaders
     train_dataloader = DataLoader(train_dataset, shuffle=True, collate_fn=data_collator, batch_size=args.per_device_train_batch_size)
-    eval_dataloader = DataLoader(eval_dataset, collate_fn=data_collator, batch_size=args.per_device_train_batch_size)  # same per device batch size as eval
+    eval_dataloader = DataLoader(eval_dataset, collate_fn=data_collator, batch_size=args.per_device_train_batch_size)  # same per device batch size as train
 
-    # Optimizer
-    # Split weights in two groups, one with weight decay and the other not.
+    # split weights in two groups, one with weight decay and the other not.
     no_decay = ["bias", "LayerNorm.weight"]
     optimizer_grouped_parameters = [
         {
@@ -299,7 +295,7 @@ def main():
     ]
     optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=args.learning_rate)
 
-    # Scheduler and math around the number of training steps.
+    # scheduler and math around the number of training steps.
     overrode_max_train_steps = False
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     if args.max_train_steps is None:
@@ -389,6 +385,8 @@ def main():
         else:
             active_dataloader = train_dataloader
         for step, batch in enumerate(active_dataloader):
+            # logger.info(f"input_ids: {batch["input_ids"][0]}")
+            # logger.info(f"labels: {batch["labels"][0]}")
             with accelerator.accumulate(model):
                 outputs = model(**batch)
                 loss = outputs.loss
@@ -414,6 +412,7 @@ def main():
                     # save model and tokenizer
                     accelerator.wait_for_everyone()
                     unwrapped_model = accelerator.unwrap_model(model)
+                    logger.info(f"\n")
                     unwrapped_model.save_pretrained(output_dir, is_main_process=accelerator.is_main_process, save_function=accelerator.save)
                     if accelerator.is_main_process:
                         tokenizer.save_pretrained(output_dir)

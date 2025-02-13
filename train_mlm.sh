@@ -3,7 +3,7 @@
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=62GB
-#SBATCH --time=8:00:00
+#SBATCH --time=48:00:00
 #SBATCH --job-name=train_mlm
 #SBATCH --output=train_mlm_%A_%a.out
 #SBATCH --array=13
@@ -34,12 +34,12 @@ DATASET_NAME=${DATASET_NAMES[$SLURM_ARRAY_TASK_ID]}
 accelerate launch --config_file accelerate_1gpu_config.yaml --num_cpu_threads_per_process 16 /scratch/eo41/babylm/train_mlm.py \
     --model_name_or_path "FacebookAI/roberta-large" \
     --dataset_name "$DATASET_NAME" \
-    --per_device_train_batch_size 32 \
-    --gradient_accumulation_steps 8 \
-    --learning_rate 0.0003 \
+    --per_device_train_batch_size 64 \
+    --gradient_accumulation_steps 4 \
+    --learning_rate 0.0001 \
     --output_dir "${MODEL_ROOT_DIR}/${DATASET_NAME}" \
     --num_train_epochs 100 \
-    --checkpointing_steps 1000 \
+    --checkpointing_steps 5000 \
     --overwrite_cache \
     --max_seq_length 512
 

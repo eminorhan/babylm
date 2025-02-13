@@ -20,16 +20,19 @@ Here is the full list of checkpoints on the hub that can be fine-tuned by this s
 https://huggingface.co/models?filter=text-generation
 """
 # You can also adapt this script on your own causal language modeling task. Pointers for this are left as comments.
-import json
 import argparse
 import logging
 import os
+from itertools import chain
 
 import datasets
 import torch
 
 import transformers
-from accelerate import Accelerator, DistributedType
+from datasets import load_dataset
+from torch.utils.data import DataLoader
+
+from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import set_seed
 from transformers import (
@@ -38,6 +41,7 @@ from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
     AutoTokenizer,
+    default_data_collator
 )
 from transformers.utils.versions import require_version
 
@@ -49,21 +53,74 @@ MODEL_CONFIG_CLASSES = list(MODEL_MAPPING.keys())
 MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
 
+DATASETS = {
+    "babylm_10M": {
+        "train": ["data/train_10M/childes.txt", "data/train_10M/bnc_spoken.txt", "data/train_10M/gutenberg.txt", "data/train_10M/open_subtitles.txt", "data/train_10M/simple_wiki.txt", "data/train_10M/switchboard.txt"],
+        "validation": ["data/dev/childes.txt", "data/dev/bnc_spoken.txt", "data/dev/gutenberg.txt", "data/dev/open_subtitles.txt", "data/dev/simple_wiki.txt", "data/dev/switchboard.txt"]
+        }, 
+    "babylm_100M": {
+        "train": ["data/train_100M/childes.txt", "data/train_100M/bnc_spoken.txt", "data/train_100M/gutenberg.txt", "data/train_100M/open_subtitles.txt", "data/train_100M/simple_wiki.txt", "data/train_100M/switchboard.txt"],
+        "validation": ["data/dev/childes.txt", "data/dev/bnc_spoken.txt", "data/dev/gutenberg.txt", "data/dev/open_subtitles.txt", "data/dev/simple_wiki.txt", "data/dev/switchboard.txt"]
+        }, 
+    "wikipedia_10M_1": ["eminorhan/wikipedia", "10M_1"],
+    "wikipedia_10M_2": ["eminorhan/wikipedia", "10M_2"],
+    "wikipedia_10M_3": ["eminorhan/wikipedia", "10M_3"],
+    "wikipedia_100M_1": ["eminorhan/wikipedia", "100M_1"],
+    "wikipedia_100M_2": ["eminorhan/wikipedia", "100M_2"],
+    "wikipedia_100M_3": ["eminorhan/wikipedia", "100M_3"],
+    "gutenberg_10M_1": ["eminorhan/gutenberg_en_dec24", "10M_1"],
+    "gutenberg_10M_2": ["eminorhan/gutenberg_en_dec24", "10M_2"],
+    "gutenberg_10M_3": ["eminorhan/gutenberg_en_dec24", "10M_3"],
+    "gutenberg_100M_1": ["eminorhan/gutenberg_en_dec24", "100M_1"],
+    "gutenberg_100M_2": ["eminorhan/gutenberg_en_dec24", "100M_2"],
+    "gutenberg_100M_3": ["eminorhan/gutenberg_en_dec24", "100M_3"],
+    "tinystories_10M_1": ["eminorhan/tinystories", "10M_1"],
+    "tinystories_10M_2": ["eminorhan/tinystories", "10M_2"],
+    "tinystories_10M_3": ["eminorhan/tinystories", "10M_3"],
+    "tinystories_100M_1": ["eminorhan/tinystories", "100M_1"],
+    "tinystories_100M_2": ["eminorhan/tinystories", "100M_2"],
+    "tinystories_100M_3": ["eminorhan/tinystories", "100M_3"],
+    "pythonedu_10M_1": ["eminorhan/python-edu", "10M_1"],
+    "pythonedu_10M_2": ["eminorhan/python-edu", "10M_2"],
+    "pythonedu_10M_3": ["eminorhan/python-edu", "10M_3"],
+    "pythonedu_100M_1": ["eminorhan/python-edu", "100M_1"],
+    "pythonedu_100M_2": ["eminorhan/python-edu", "100M_2"],
+    "pythonedu_100M_3": ["eminorhan/python-edu", "100M_3"],
+}
+
+
+def check_file_extensions(file_list):
+    # Extract the extension from the first file
+    extension = file_list[0].split('.')[-1]
+    
+    # Check that all files have one of the allowed extensions
+    for file_name in file_list:
+        assert file_name.endswith(('.csv', '.json', '.txt')), "Invalid file extension."
+    
+    # Check that all files have the same extension
+    for file_name in file_list:
+        assert file_name.split('.')[-1] == extension, "Files have different extensions."
+
+    print("All files have the same extension: {}.".format(extension))
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Sample from a trained model")
-    parser.add_argument("--test_file", type=str, default='', help="path to test stories")
+    parser.add_argument("--dataset_name", type=str, help="dataset", choices=DATASETS.keys())
     parser.add_argument("--save_prefix", type=str, default='', help="Informative string for saving purposes")
     parser.add_argument("--model_name_or_path", type=str, help="Path to pretrained model or model identifier from huggingface.co/models.", required=False)
     parser.add_argument("--config_name", type=str, default=None, help="Pretrained config name or path if not the same as model_name")
     parser.add_argument("--tokenizer_name", type=str, default=None, help="Pretrained tokenizer name or path if not the same as model_name")
     parser.add_argument("--use_slow_tokenizer", action="store_true", help="If passed, will use a slow tokenizer (not backed by the 🤗 Tokenizers library).")
-    parser.add_argument("--per_device_eval_batch_size", type=int, default=8, help="Batch size (per device) for the evaluation dataloader.")
+    parser.add_argument("--per_device_batch_size", type=int, default=1, help="Batch size (per device).")
     parser.add_argument("--output_dir", type=str, default=None, help="Where to store the final model.")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument("--model_type", type=str, default=None, help="Model type to use if training from scratch.", choices=MODEL_TYPES)
     parser.add_argument("--block_size", type=int, default=None, help="The training dataset will be truncated to blocks of this size (after tokenization) for training.")
     parser.add_argument("--preprocessing_num_workers", type=int, default=None, help="The number of processes to use for the preprocessing.")
     parser.add_argument("--overwrite_cache", action="store_true", help="Overwrite the cached training and evaluation sets")
+    parser.add_argument("--no_keep_linebreaks", action="store_true", help="Do not keep line breaks when using TXT files.")
+
     args = parser.parse_args()
 
     return args
@@ -96,6 +153,21 @@ def main():
             os.makedirs(args.output_dir, exist_ok=True)
     accelerator.wait_for_everyone()
 
+    # In distributed training, 'load_dataset' function guarantee that only one local process can concurrently download the dataset.
+    if args.dataset_name.startswith("babylm"):
+        data_files = DATASETS[args.dataset_name]
+
+        # Sanity check for file extensions
+        check_file_extensions(data_files["train"])
+        check_file_extensions(data_files["validation"])
+
+        dataset_args = {"keep_linebreaks": not args.no_keep_linebreaks}
+        raw_datasets = load_dataset("text", data_files=data_files, **dataset_args)
+    else:
+        repo_info = DATASETS[args.dataset_name]
+        raw_datasets = load_dataset(repo_info[0], repo_info[1])
+
+
     # LOAD PRETRAINED MODEL & TOKENIZER
     # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently download model & vocab.
     if args.config_name:
@@ -124,6 +196,10 @@ def main():
     print('Pad token id:', tokenizer.pad_token_id)
     print('Model:', model)
 
+    # Preprocessing the datasets. First we tokenize all the texts.
+    column_names = raw_datasets["train"].column_names
+    text_column_name = "text" if "text" in column_names else column_names[0]
+
     if args.block_size is None:
         block_size = tokenizer.model_max_length
         if block_size > 1024:
@@ -135,39 +211,73 @@ def main():
             logger.warning(f"The block_size passed ({args.block_size}) is larger than the maximum length for the model ({tokenizer.model_max_length}). Using block_size={tokenizer.model_max_length}.")
             block_size = tokenizer.model_max_length
 
+    def tokenize_function_original(examples):
+        return tokenizer(examples[text_column_name])
+
+    with accelerator.main_process_first():
+        tokenized_datasets = raw_datasets.map(
+            tokenize_function_original,
+            batched=True,
+            num_proc=args.preprocessing_num_workers,
+            remove_columns=column_names,
+            load_from_cache_file=not args.overwrite_cache,
+            desc="Running tokenizer on dataset",
+        )
+
+    def preprocess_function_original(examples):
+        # Concatenate all texts (aka sequence packing).
+        concatenated_examples = {k: list(chain(*examples[k])) for k in examples.keys()}
+        total_length = len(concatenated_examples[list(examples.keys())[0]])
+        # We drop the small remainder, we could add padding if the model supported it instead of this drop, you can customize this part to your needs
+        total_length = (total_length // block_size) * block_size
+        # Split by chunks of max_len.
+        result = {k: [t[i : i + block_size] for i in range(0, total_length, block_size)] for k, t in concatenated_examples.items()}
+        result["labels"] = result["input_ids"].copy()
+        return result
+    
+    with accelerator.main_process_first():
+        lm_datasets = tokenized_datasets.map(
+            preprocess_function_original,
+            batched=True,
+            num_proc=args.preprocessing_num_workers,
+            load_from_cache_file=not args.overwrite_cache,
+            desc=f"Grouping text.",
+        )
+
+    # dataset & dataloader creation
+    train_dataset = lm_datasets["train"]
+    train_dataloader = DataLoader(train_dataset, shuffle=True, collate_fn=default_data_collator, batch_size=args.per_device_batch_size)
+
     # Prepare everything with our `accelerator`.
     model = accelerator.prepare(model)
 
-    # On TPU, the tie weights in our model have been disconnected, so we need to restore the ties.
-    if accelerator.distributed_type == DistributedType.TPU:
-        model.tie_weights()
-
     logger.info("***** Starting sampling *****")
-    logger.info(f"Instantaneous batch size per device = {args.per_device_eval_batch_size}")
+    logger.info(f"Instantaneous batch size per device = {args.per_device_batch_size}")
 
-    # process test stories
-    test_stories = [] 
-    # Open the JSON file
-    with open(args.test_file, 'r') as json_file:
-        # Read each line separately and load JSON data
-        for line in json_file:
-            try:
-                # Load JSON data from the line
-                data = json.loads(line)
+    # # process test stories
+    # test_stories = [] 
+    # # Open the JSON file
+    # with open(args.test_file, 'r') as json_file:
+    #     # Read each line separately and load JSON data
+    #     for line in json_file:
+    #         try:
+    #             # Load JSON data from the line
+    #             data = json.loads(line)
 
-                # Assuming the JSON structure is a dictionary with a "story" field
-                story = data.get("story", None)
+    #             # Assuming the JSON structure is a dictionary with a "story" field
+    #             story = data.get("story", None)
 
-                test_stories.append(story)
-            except json.JSONDecodeError as e:
-                print(f"Error decoding JSON: {e}")
+    #             test_stories.append(story)
+    #         except json.JSONDecodeError as e:
+    #             print(f"Error decoding JSON: {e}")
 
     model.eval()
 
     generations = []
-    for i in range(100):
+    for step, batch in enumerate(train_dataloader):
         with torch.no_grad():
-            tokenized_input = tokenizer([test_stories[i]], return_tensors="pt")['input_ids']
+            tokenized_input = batch['input_ids']
+            print('tokenized_input shape:', tokenized_input.shape)
             tokenized_input_trunc = tokenized_input[:, :tokenized_input.shape[1]//2]
             output_tok = model.generate(inputs=tokenized_input_trunc.cuda(), do_sample=True, max_length=tokenizer.model_max_length, return_dict_in_generate=False, output_scores=False)
             original = tokenizer.decode(tokenized_input[0], skip_special_tokens=True)

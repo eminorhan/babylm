@@ -38,12 +38,10 @@ from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import set_seed
 from transformers import (
-    CONFIG_MAPPING,
     MODEL_MAPPING,
     AutoConfig,
     AutoModelForCausalLM,
     AutoTokenizer,
-    PreTrainedTokenizerFast,
     SchedulerType,
     default_data_collator,
     get_scheduler
@@ -184,23 +182,10 @@ def main():
         raw_datasets = load_dataset(repo_info[0], repo_info[1])
 
     # Load pretrained model and tokenizer
-    # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently download model & vocab.
-    if args.config_name:
-        config = AutoConfig.from_pretrained(args.config_name, token=True)
-    elif args.model_name_or_path:
-        config = AutoConfig.from_pretrained(args.model_name_or_path, token=True)
-    else:
-        config = CONFIG_MAPPING[args.model_type]()
-        logger.warning("You are instantiating a new config instance from scratch.")
-
-    if args.tokenizer_name:
-        tokenizer = PreTrainedTokenizerFast(tokenizer_file=args.tokenizer_name, unk_token="[UNK]", pad_token="[PAD]", cls_token="[CLS]", sep_token="[SEP]", mask_token="[MASK]")
-    elif args.model_name_or_path:
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=True, model_max_length=1024, token=True)  # TODO: pass this more beautifully
-        if args.model_name_or_path.startswith("meta-llama") or args.model_name_or_path.startswith("gpt2") or args.model_name_or_path.startswith("EleutherAI"):
-            tokenizer.pad_token = tokenizer.eos_token
-    else:
-        raise ValueError("You are instantiating a new tokenizer from scratch. This is not supported by this script. You can do it from another script, save it, and load it from here, using --tokenizer_name.")
+    config = AutoConfig.from_pretrained(args.model_name_or_path, token=True)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=True, model_max_length=1024, token=True)  # TODO: pass `model_max_length` more beautifully
+    if args.model_name_or_path.startswith("meta-llama") or args.model_name_or_path.startswith("gpt2") or args.model_name_or_path.startswith("EleutherAI"):
+        tokenizer.pad_token = tokenizer.eos_token
 
     if args.model_name_or_path and args.use_pretrained_weights:
         logger.info("Loading pretrained weights")
@@ -317,7 +302,6 @@ def main():
     if checkpointing_steps is not None and checkpointing_steps.isdigit():
         checkpointing_steps = int(checkpointing_steps)
 
-    # Train!
     total_batch_size = args.per_device_train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
     
     logger.info("***** Running training *****")
