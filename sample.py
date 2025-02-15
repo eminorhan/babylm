@@ -247,7 +247,8 @@ def main():
     # dataset & dataloader creation
     train_dataset = lm_datasets["train"]
     train_dataloader = DataLoader(train_dataset, shuffle=True, collate_fn=default_data_collator, batch_size=args.per_device_batch_size)
-
+    print(f"Dataloader length: {len(train_dataloader)}")
+    
     # Prepare everything with our `accelerator`.
     model = accelerator.prepare(model)
 
@@ -279,16 +280,19 @@ def main():
             tokenized_input = batch['input_ids']
             print('tokenized_input shape:', tokenized_input.shape)
             tokenized_input_trunc = tokenized_input[:, :tokenized_input.shape[1]//2]
-            output_tok = model.generate(inputs=tokenized_input_trunc.cuda(), do_sample=True, max_length=tokenizer.model_max_length, return_dict_in_generate=False, output_scores=False)
-            original = tokenizer.decode(tokenized_input[0], skip_special_tokens=True)
-            prompt = tokenizer.decode(tokenized_input_trunc[0], skip_special_tokens=True)
-            output = tokenizer.decode(output_tok[0], skip_special_tokens=True)
-            print('origin:', original)
-            print('prompt:', prompt)
+            output_tok = model.generate(inputs=tokenized_input_trunc.cuda(), num_return_sequences=3, do_sample=True, max_length=tokenizer.model_max_length, return_dict_in_generate=False, output_scores=False)
+            output = tokenizer.batch_decode(output_tok, skip_special_tokens=True)
+
+            # original = tokenizer.decode(tokenized_input[0], skip_special_tokens=True)
+            # prompt = tokenizer.decode(tokenized_input_trunc[0], skip_special_tokens=True)
+            # output = tokenizer.decode(output_tok[0], skip_special_tokens=True)
+            # print('origin:', original)
+            # print('prompt:', prompt)
+            
             print('output:', output)
             print('\n')
 
-            generations.append(output)
+            # generations.append(output)
 
     # save results
     save_path = os.path.join(args.output_dir, args.save_prefix + '_results.npz')

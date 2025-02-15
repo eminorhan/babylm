@@ -4,8 +4,8 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=240GB
 #SBATCH --time=1:00:00
-#SBATCH --job-name=dpo_babylm_100M_gpt
-#SBATCH --output=dpo_babylm_100M_gpt_%A_%a.out
+#SBATCH --job-name=dpo
+#SBATCH --output=dpo_%A_%a.out
 #SBATCH --array=10
 
 export HF_HOME="/vast/eo41/huggingface"
