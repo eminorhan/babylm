@@ -29,7 +29,7 @@ import datasets
 import torch
 
 import transformers
-from datasets import load_dataset
+from datasets import load_dataset, Dataset
 from torch.utils.data import DataLoader
 
 from accelerate import Accelerator
@@ -107,18 +107,19 @@ def check_file_extensions(file_list):
 def parse_args():
     parser = argparse.ArgumentParser(description="Sample from a trained model")
     parser.add_argument("--dataset_name", type=str, help="dataset", choices=DATASETS.keys())
-    parser.add_argument("--save_prefix", type=str, default='', help="Informative string for saving purposes")
+    parser.add_argument("--save_prefix", type=str, default='', help="Informative string for saving purposes.")
     parser.add_argument("--model_name_or_path", type=str, help="Path to pretrained model or model identifier from huggingface.co/models.", required=False)
-    parser.add_argument("--config_name", type=str, default=None, help="Pretrained config name or path if not the same as model_name")
-    parser.add_argument("--tokenizer_name", type=str, default=None, help="Pretrained tokenizer name or path if not the same as model_name")
+    parser.add_argument("--config_name", type=str, default=None, help="Pretrained config name or path if not the same as model_name.")
+    parser.add_argument("--tokenizer_name", type=str, default=None, help="Pretrained tokenizer name or path if not the same as model_name.")
     parser.add_argument("--use_slow_tokenizer", action="store_true", help="If passed, will use a slow tokenizer (not backed by the 🤗 Tokenizers library).")
     parser.add_argument("--per_device_batch_size", type=int, default=1, help="Batch size (per device).")
+    parser.add_argument("--num_return_sequences", type=int, default=1, help="Number of generated samples per prompt.")
     parser.add_argument("--output_dir", type=str, default=None, help="Where to store the final model.")
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument("--model_type", type=str, default=None, help="Model type to use if training from scratch.", choices=MODEL_TYPES)
     parser.add_argument("--block_size", type=int, default=None, help="The training dataset will be truncated to blocks of this size (after tokenization) for training.")
     parser.add_argument("--preprocessing_num_workers", type=int, default=None, help="The number of processes to use for the preprocessing.")
-    parser.add_argument("--overwrite_cache", action="store_true", help="Overwrite the cached training and evaluation sets")
+    parser.add_argument("--overwrite_cache", action="store_true", help="Overwrite the cached training and evaluation sets.")
     parser.add_argument("--no_keep_linebreaks", action="store_true", help="Do not keep line breaks when using TXT files.")
 
     args = parser.parse_args()
@@ -255,47 +256,41 @@ def main():
     logger.info("***** Starting sampling *****")
     logger.info(f"Instantaneous batch size per device = {args.per_device_batch_size}")
 
-    # # process test stories
-    # test_stories = [] 
-    # # Open the JSON file
-    # with open(args.test_file, 'r') as json_file:
-    #     # Read each line separately and load JSON data
-    #     for line in json_file:
-    #         try:
-    #             # Load JSON data from the line
-    #             data = json.loads(line)
-
-    #             # Assuming the JSON structure is a dictionary with a "story" field
-    #             story = data.get("story", None)
-
-    #             test_stories.append(story)
-    #         except json.JSONDecodeError as e:
-    #             print(f"Error decoding JSON: {e}")
-
     model.eval()
 
-    generations = []
+    # prepare dict for DPO dataset
+    preference_dataset_dict = {
+        "prompt": [],
+        "chosen": [],
+        "rejected": []
+    }
+
     for step, batch in enumerate(train_dataloader):
         with torch.no_grad():
             tokenized_input = batch['input_ids']
-            print('tokenized_input shape:', tokenized_input.shape)
-            tokenized_input_trunc = tokenized_input[:, :tokenized_input.shape[1]//2]
-            output_tok = model.generate(inputs=tokenized_input_trunc.cuda(), num_return_sequences=3, do_sample=True, max_length=tokenizer.model_max_length, return_dict_in_generate=False, output_scores=False)
-            output = tokenizer.batch_decode(output_tok, skip_special_tokens=True)
+            prompt = tokenized_input[:, :tokenized_input.shape[1]//2]
+            output_tok = model.generate(
+                inputs=prompt.cuda(), 
+                num_return_sequences=args.num_return_sequences, 
+                do_sample=True, 
+                max_length=tokenizer.model_max_length, 
+                return_dict_in_generate=False, 
+                output_scores=False
+                )
+            output = tokenizer.batch_decode(output_tok[:, (tokenized_input.shape[1]//2):], skip_special_tokens=True)
+            original = tokenizer.decode(tokenized_input[0, (tokenized_input.shape[1]//2):], skip_special_tokens=True)
 
-            # original = tokenizer.decode(tokenized_input[0], skip_special_tokens=True)
-            # prompt = tokenizer.decode(tokenized_input_trunc[0], skip_special_tokens=True)
-            # output = tokenizer.decode(output_tok[0], skip_special_tokens=True)
-            # print('origin:', original)
-            # print('prompt:', prompt)
-            
-            print('output:', output)
-            print('\n')
+            for i in range(args.num_return_sequences):
+                preference_dataset_dict["prompt"].append(prompt)
+                preference_dataset_dict["chosen"].append(original)
+                preference_dataset_dict["rejected"].append(output)
 
-            # generations.append(output)
+            if step % 100 == 0:
+                print("step:", step, "of", len(train_dataloader))    
 
     # save results
-    save_path = os.path.join(args.output_dir, args.save_prefix + '_results.npz')
+    preference_dataset = Dataset.from_dict(preference_dataset_dict)
+    preference_dataset.to_json(f"{args.save_prefix}.json")
 
 if __name__ == "__main__":
     main()
