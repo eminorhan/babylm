@@ -252,10 +252,6 @@ def main():
     
     # Prepare everything with our `accelerator`.
     model = accelerator.prepare(model)
-
-    logger.info("***** Starting sampling *****")
-    logger.info(f"Instantaneous batch size per device = {args.per_device_batch_size}")
-
     model.eval()
 
     # prepare dict for DPO dataset
@@ -267,25 +263,43 @@ def main():
 
     for step, batch in enumerate(train_dataloader):
         with torch.no_grad():
-            tokenized_input = batch['input_ids']
-            prompt = tokenized_input[:, :tokenized_input.shape[1]//2]
+            input_tok = batch['input_ids']
+            prompt_tok = input_tok[:, :input_tok.shape[1]//2]
             output_tok = model.generate(
-                inputs=prompt.cuda(), 
+                inputs=prompt_tok.cuda(), 
                 num_return_sequences=args.num_return_sequences, 
                 do_sample=True, 
                 max_length=tokenizer.model_max_length, 
                 return_dict_in_generate=False, 
                 output_scores=False
                 )
-            output = tokenizer.batch_decode(output_tok[:, (tokenized_input.shape[1]//2):], skip_special_tokens=True)
-            original = tokenizer.decode(tokenized_input[0, (tokenized_input.shape[1]//2):], skip_special_tokens=True)
+            
+            # print('prompt_tok shape:', prompt_tok.shape)
+            # print('input_tok shape:', input_tok.shape)
+            # print('output_tok shape:', output_tok.shape)
 
-            for i in range(args.num_return_sequences):
-                preference_dataset_dict["prompt"].append(prompt)
-                preference_dataset_dict["chosen"].append(original)
-                preference_dataset_dict["rejected"].append(output)
+            chosen = tokenizer.batch_decode(input_tok[:, (input_tok.shape[1]//2):], skip_special_tokens=True)
+            rejected = tokenizer.batch_decode(output_tok[:, (input_tok.shape[1]//2):], skip_special_tokens=True)
+            prompt = tokenizer.batch_decode(prompt_tok, skip_special_tokens=True)
 
-            if step % 100 == 0:
+            batch_size = input_tok.shape[0]
+            for i in range(batch_size):
+                prompt_i = prompt[i] 
+                chosen_i = chosen[i]
+
+                for j in range(args.num_return_sequences):
+                    rejected_index = i * args.num_return_sequences + j # calculate index in the flattened rejected completions list
+                    rejected_j = rejected[rejected_index]
+                    preference_dataset_dict["prompt"].append(prompt_i)
+                    preference_dataset_dict["chosen"].append(chosen_i)
+                    preference_dataset_dict["rejected"].append(rejected_j)
+
+                    # print('======', i, j, '======')
+                    # print('prompt:', prompt_i)
+                    # print('chosen:', chosen_i)
+                    # print('rejected:', rejected_j)
+
+            if step % 10 == 0:
                 print("step:", step, "of", len(train_dataloader))    
 
     # save results

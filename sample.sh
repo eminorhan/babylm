@@ -3,7 +3,7 @@
 #SBATCH --gres=gpu:a100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=62GB
-#SBATCH --time=4:00:00
+#SBATCH --time=24:00:00
 #SBATCH --job-name=sample
 #SBATCH --output=sample_%A_%a.out
 #SBATCH --array=0
@@ -38,8 +38,8 @@ python -u /scratch/eo41/babylm/sample.py \
     --output_dir "samples/${SP}" \
     --save_prefix ${SP} \
     --block_size 1024 \
-    --per_device_batch_size 1 \
-    --num_return_sequences 1 \
+    --per_device_batch_size 64 \
+    --num_return_sequences 8 \
     --overwrite_cache
 
 echo "Done"
