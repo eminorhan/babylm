@@ -99,10 +99,11 @@ def main(script_args, training_args, model_args):
     # Dataset
     ################
 
-    train_ds = load_dataset('json', data_files=script_args.dataset_name, split='train[:90%]')
-    eval_ds = load_dataset('json', data_files=script_args.dataset_name, split='train[90%:]')
+    train_ds = load_dataset("json", data_files=script_args.dataset_name, split="train[:90%]")
+    eval_ds = load_dataset("json", data_files=script_args.dataset_name, split="train[90%:]")
+    print(f"Number of train/val examples: {len(train_ds)}/{len(eval_ds)}")
 
-    ##########
+    ################
     # Training
     ################
     trainer = DPOTrainer(
@@ -140,7 +141,7 @@ def make_parser(subparsers: argparse._SubParsersAction = None):
 if __name__ == "__main__":
     parser = make_parser()
     script_args, training_args, model_args = parser.parse_args_and_config()
-    print('Script args:', script_args)
-    print('Training args:', training_args)
-    print('Model args:', model_args)
+    print(f"Script args: {script_args}")
+    print(f"Training args: {training_args}")
+    print(f"Model args: {model_args}")
     main(script_args, training_args, model_args)

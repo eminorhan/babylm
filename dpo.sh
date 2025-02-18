@@ -1,9 +1,9 @@
 #!/bin/bash
 
-#SBATCH --gres=gpu:a100:1
+#SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=62GB
-#SBATCH --time=01:00:00
+#SBATCH --time=12:00:00
 #SBATCH --job-name=dpo
 #SBATCH --output=dpo_%A_%a.out
 #SBATCH --array=0
@@ -25,12 +25,12 @@ accelerate launch --config_file accelerate_1gpu_config.yaml --num_cpu_threads_pe
     --output_dir dpo \
     --num_train_epochs 1 \
     --eval_strategy steps \
-    --eval_steps 300 \
+    --eval_steps 100 \
     --logging_steps 100 \
-    --save_steps 300 \
+    --save_steps 100 \
+    --torch_empty_cache_steps 100 \
     --max_length 1024 \
     --max_prompt_length 512 \
-    --logging_first_step \
     --no_remove_unused_columns \
     --bf16 \
     --warmup_steps 50
